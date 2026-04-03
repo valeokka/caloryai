@@ -1,0 +1,38 @@
+{
+  "name": "calorie-counter-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for calorie counting using ChatGPT Vision API",
+  "main": "src/bot/index.js",
+  "scripts": {
+    "start": "pm2 start ecosystem.config.js",
+    "dev": "node --watch src/bot/index.js",
+    "prod": "node src/bot/index.js",
+    "migrate": "node scripts/migrate.js",
+    "logs": "pm2 logs calorie-bot",
+    "stop": "pm2 stop calorie-bot",
+    "restart": "pm2 restart calorie-bot",
+    "status": "pm2 status calorie-bot",
+    "test": "jest --run",
+    "test:watch": "jest --watch"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "calorie",
+    "nutrition",
+    "openai"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "pg": "^8.11.3",
+    "openai": "^4.28.0",
+    "dotenv": "^16.4.5",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4"
+  }
+}
