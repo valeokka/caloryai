@@ -39,7 +39,7 @@ module.exports = {
   OPENAI: {
     TIMEOUT: 30000, // 30 секунд
     MAX_RETRIES: 2,
-    MODEL: 'gpt-4-vision-preview'
+    MODEL: 'gpt-4o'
   },
 
   // Сообщения для пользователей
