@@ -106,8 +106,8 @@ function initializeBot() {
       } else if (callbackData === 'pay_back') {
         await handlePayBack(ctx);
       } else if (callbackData.startsWith('buy_')) {
-        // legacy — на случай старых сообщений в чате
-        await ctx.answerCbQuery('Пожалуйста, отправь новое фото для покупки запросов');
+        // legacy кнопки — просто закрываем без сообщения
+        await ctx.answerCbQuery();
       } else {
         // Неизвестный callback
         logger.warn('Unknown callback query', { 
