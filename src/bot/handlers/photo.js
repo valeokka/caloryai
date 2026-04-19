@@ -107,17 +107,18 @@ async function photoHandler(ctx) {
       tokens: nutritionData.tokens
     });
 
-    // Сохраняем результат
+    // Сохраняем результат (используем вес из OpenAI, если не был указан пользователем)
+    const finalWeight = weight || nutritionData.weight;
     const savedRequest = await requestService.saveRequest(
       userId,
       fileId,
       nutritionData,
-      weight
+      finalWeight
     );
 
-    // Отправляем результат пользователю
+    // Отправляем результат пользователю (используем вес из nutritionData)
     await ctx.reply(
-      formatNutritionData({ ...nutritionData, weight }),
+      formatNutritionData(nutritionData),
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
