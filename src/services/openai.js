@@ -229,6 +229,99 @@ class OpenAIService {
 
     throw lastError;
   }
+
+  /**
+   * Анализировать еду по текстовому описанию (без фото)
+   * @param {string} foodName - Название еды
+   * @param {number} weight - Вес порции в граммах
+   * @returns {Promise<Object>} { dishName, calories, protein, fat, carbs, weight, cost, tokens }
+   */
+  async analyzeFoodByText(foodName, weight) {
+    const startTime = Date.now();
+    
+    try {
+      logger.info('Analyzing food by text', { foodName, weight });
+
+      const prompt = `Analyze this food item and provide nutritional information.
+Food: ${foodName}
+Weight: ${weight}g
+
+Provide ONLY a JSON response with this exact structure:
+{"name":"${foodName}","weight":${weight},"protein":0,"fat":0,"carbs":0}
+
+Rules:
+- name: keep the original name in Russian
+- weight: use the provided weight (${weight}g)
+- protein, fat, carbs: in grams for this portion
+- Use typical nutritional values for this food
+- Be realistic and accurate`;
+
+      const result = await this._retryWithBackoff(async () => {
+        const response = await this.client.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: 100,
+          temperature: 0.3
+        });
+
+        const content = response.choices[0].message.content.trim();
+        const usage = response.usage;
+
+        logger.info('OpenAI text response', { content, tokens: usage.total_tokens });
+
+        // Парсим JSON
+        const jsonMatch = content.match(/\{[^}]+\}/);
+        if (!jsonMatch) {
+          throw new Error('Invalid JSON response from OpenAI');
+        }
+
+        const data = JSON.parse(jsonMatch[0]);
+
+        // Валидация
+        if (!data.protein || !data.fat || !data.carbs) {
+          throw new Error('Missing nutritional data in response');
+        }
+
+        // Рассчитываем калории
+        const calories = calculateCalories(data.protein, data.fat, data.carbs);
+
+        // Рассчитываем стоимость
+        const cost = this._calculateCost(usage.prompt_tokens, usage.completion_tokens);
+
+        return {
+          dishName: data.name || foodName,
+          calories: Math.round(calories),
+          protein: Math.round(data.protein),
+          fat: Math.round(data.fat),
+          carbs: Math.round(data.carbs),
+          weight: weight,
+          cost: `$${cost.toFixed(4)}`,
+          tokens: usage.total_tokens
+        };
+      });
+
+      const duration = Date.now() - startTime;
+      logger.info('Text food analysis completed', { 
+        duration: `${duration}ms`,
+        cost: result.cost
+      });
+
+      return result;
+    } catch (error) {
+      logger.error('Error analyzing food by text', {
+        foodName,
+        weight,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
 }
 
 module.exports = new OpenAIService();

@@ -50,6 +50,10 @@ const {
   handleAdvancedInput,
   isGoalMessage
 } = require('./handlers/goals');
+const {
+  isFoodText,
+  handleTextFood
+} = require('./handlers/textFood');
 
 // Константы
 const { MESSAGES } = require('../config/constants');
@@ -194,7 +198,7 @@ function initializeBot() {
   bot.on('pre_checkout_query', handlePreCheckout);
   bot.on('successful_payment', handleSuccessfulPayment);
 
-  // Обработчик текстовых сообщений (для корректировки, профиля и целей)
+  // Обработчик текстовых сообщений (для корректировки, профиля, целей и добавления еды)
   bot.on('text', async (ctx) => {
     try {
       // Проверяем, является ли это сообщением целей
@@ -206,15 +210,23 @@ function initializeBot() {
       } else if (isCorrectionMessage(ctx)) {
         // Проверяем, является ли это сообщением корректировки
         await handleCorrectionInput(ctx);
+      } else if (isFoodText(ctx.message.text)) {
+        // Проверяем, является ли это описанием еды (например: "Куриная грудка 200г")
+        await handleTextFood(ctx);
       } else {
         // Обычное текстовое сообщение - показываем справку
         await ctx.reply(
           '❓ Я понимаю только фотографии еды и команды.\n\n' +
           'Отправь мне фото блюда, и я подсчитаю калории!\n\n' +
+          'Или напиши название еды и вес, например:\n' +
+          '• Куриная грудка 200г\n' +
+          '• Рис 150\n' +
+          '• Яблоко 100 грамм\n\n' +
           'Доступные команды:\n' +
           '/start - показать приветствие\n' +
           '/status - проверить статус и лимиты\n' +
-          '/profile - управление профилем'
+          '/profile - управление профилем\n' +
+          '/diary - дневник питания'
         );
       }
     } catch (error) {
