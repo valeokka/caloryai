@@ -105,6 +105,8 @@ async function updateGoalAndNutrition(telegramId, nutritionData) {
     proteinPerKg, fatPerKg, proteinG, fatG, carbsG
   } = nutritionData;
   
+  const isManualGoal = goalMode === 'advanced';
+  
   const query = `
     UPDATE user_profiles 
     SET goal_type = $2,
@@ -118,7 +120,7 @@ async function updateGoalAndNutrition(telegramId, nutritionData) {
         fat_g = $10,
         carbs_g = $11,
         calorie_goal = $6,
-        is_manual_goal = CASE WHEN $3 = 'advanced' THEN true ELSE false END,
+        is_manual_goal = $12,
         updated_at = CURRENT_TIMESTAMP
     WHERE telegram_id = $1
     RETURNING *
@@ -126,7 +128,7 @@ async function updateGoalAndNutrition(telegramId, nutritionData) {
   
   const result = await pool.query(query, [
     telegramId, goalType, goalMode, goalPercent, tdee, targetCalories,
-    proteinPerKg, fatPerKg, proteinG, fatG, carbsG
+    proteinPerKg, fatPerKg, proteinG, fatG, carbsG, isManualGoal
   ]);
   
   return result.rows[0];
