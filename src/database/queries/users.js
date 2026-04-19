@@ -1,4 +1,5 @@
 const pool = require('../connection');
+const logger = require('../../utils/logger');
 
 /**
  * Получить пользователя по telegram_id
@@ -23,7 +24,7 @@ async function createUser(telegramId) {
 }
 
 /**
- * Обновить количество купленных запросов
+ * Обновить количество купленных запросов (атомарная операция)
  */
 async function updatePurchasedRequests(telegramId, amount) {
   const query = `
@@ -34,6 +35,29 @@ async function updatePurchasedRequests(telegramId, amount) {
     RETURNING *
   `;
   const result = await pool.query(query, [telegramId, amount]);
+  return result.rows[0];
+}
+
+/**
+ * Атомарно уменьшить купленные запросы (только если они есть)
+ * Возвращает обновленного пользователя если успешно, null если запросов не хватает
+ * Решает проблему race condition при одновременных запросах
+ */
+async function decrementPurchasedRequestAtomic(telegramId) {
+  const query = `
+    UPDATE users 
+    SET purchased_requests = purchased_requests - 1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE telegram_id = $1 AND purchased_requests > 0
+    RETURNING *
+  `;
+  const result = await pool.query(query, [telegramId]);
+  
+  if (result.rows.length === 0) {
+    logger.warn(`Failed to decrement purchased request for user ${telegramId} - no requests available`);
+    return null;
+  }
+  
   return result.rows[0];
 }
 
@@ -55,5 +79,6 @@ module.exports = {
   getUser,
   createUser,
   updatePurchasedRequests,
+  decrementPurchasedRequestAtomic,
   getUserWithClass,
 };

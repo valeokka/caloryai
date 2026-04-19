@@ -6,6 +6,7 @@ const userQueries = require('../database/queries/users');
 const classQueries = require('../database/queries/classes');
 const requestQueries = require('../database/queries/requests');
 const logger = require('../utils/logger');
+const cache = require('../utils/cache');
 
 class UserService {
   /**
@@ -36,7 +37,18 @@ class UserService {
    */
   async getUserClass(userClassId) {
     try {
+      // Кэшируем классы - они редко меняются
+      const cacheKey = `class:${userClassId}`;
+      const cachedClass = cache.get(cacheKey);
+      if (cachedClass) {
+        return cachedClass;
+      }
+
       const userClass = await classQueries.getClassById(userClassId);
+      
+      // Сохраняем в кэш на 5 минут
+      cache.set(cacheKey, userClass, 5 * 60 * 1000);
+      
       return userClass;
     } catch (error) {
       logger.error('Error in getUserClass', { userClassId, error: error.message });

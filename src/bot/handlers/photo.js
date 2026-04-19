@@ -5,10 +5,13 @@
 const { Markup } = require('telegraf');
 const requestService = require('../../services/requestService');
 const openaiService = require('../../services/openai');
+const imageService = require('../../services/imageService');
 const { formatNutritionData } = require('../../utils/formatter');
-const { MESSAGES } = require('../../config/constants');
+const { extractWeightFromText } = require('../../utils/validator');
+const { MESSAGES, VALIDATION, CACHE, IMAGE } = require('../../config/constants');
 const { showPaymentMethods } = require('./payment');
 const logger = require('../../utils/logger');
+const requestQueries = require('../../database/queries/requests');
 
 /**
  * Обработчик фотографий
@@ -22,44 +25,103 @@ async function photoHandler(ctx) {
 
     logger.info(`User ${userId} sent a photo`, { caption });
 
-    // Проверяем возможность запроса через RequestService.canMakeRequest
-    const requestCheck = await requestService.canMakeRequest(userId);
+    // Извлекаем file_id самой большой версии фото
+    const largestPhoto = photos[photos.length - 1];
+    const fileId = largestPhoto.file_id;
+    const fileSize = largestPhoto.file_size;
 
-    if (!requestCheck.allowed) {
-      await showPaymentMethods(ctx, requestCheck.reason);
+    // Проверяем размер фото
+    if (fileSize && fileSize > VALIDATION.PHOTO.MAX_SIZE_BYTES) {
+      const maxSizeMB = VALIDATION.PHOTO.MAX_SIZE_MB;
+      const actualSizeMB = (fileSize / (1024 * 1024)).toFixed(1);
+      logger.warn(`Photo too large: ${actualSizeMB}MB (max: ${maxSizeMB}MB)`, { userId, fileId });
+      
+      await ctx.reply(
+        MESSAGES.PHOTO_TOO_LARGE.replace('{maxSize}', maxSizeMB) + 
+        `\n\nРазмер твоего фото: ${actualSizeMB}МБ`
+      );
       return;
     }
 
-    // Если используем купленный запрос, уменьшаем счетчик
-    if (requestCheck.usedPurchased) {
-      await requestService.decrementPurchasedRequest(userId);
-      logger.info(`User ${userId} used a purchased request`);
+    // Проверяем кэш, если включен
+    if (CACHE.ENABLED) {
+      const cachedResult = await requestQueries.getCachedResult(fileId, CACHE.TTL_HOURS);
+      
+      if (cachedResult) {
+        logger.info(`Cache hit for file_id: ${fileId}`, { userId, cachedRequestId: cachedResult.id });
+        
+        await ctx.reply(
+          MESSAGES.CACHED_RESULT + '\n\n' + formatNutritionData({
+            dishName: cachedResult.dish_name,
+            calories: parseFloat(cachedResult.calories),
+            protein: parseFloat(cachedResult.protein),
+            fat: parseFloat(cachedResult.fat),
+            carbs: parseFloat(cachedResult.carbs),
+            weight: cachedResult.weight
+          }),
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              Markup.button.callback('✏️ Корректировать результаты', `correct_${cachedResult.id}`)
+            ])
+          }
+        );
+        
+        return;
+      }
     }
 
     // Отправляем сообщение о начале обработки
     await ctx.reply(MESSAGES.PROCESSING);
 
-    // Извлекаем file_id самой большой версии фото
-    const largestPhoto = photos[photos.length - 1];
-    const fileId = largestPhoto.file_id;
-
-    // Получаем URL фотографии через Telegram API
-    const file = await ctx.telegram.getFile(fileId);
-    const photoUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
-
-    // Парсим подпись на наличие веса порции (regex)
-    let weight = null;
-    const weightMatch = caption.match(/\d+/);
-    if (weightMatch) {
-      weight = parseInt(weightMatch[0], 10);
+    // Извлекаем вес из подписи используя validator
+    const weight = extractWeightFromText(caption);
+    if (weight) {
       logger.info(`Weight detected: ${weight}g`);
     }
 
-    // Отправляем фото в OpenAIService.analyzeFood
-    const nutritionData = await openaiService.analyzeFood(photoUrl, weight);
-    logger.info('Nutrition data received', nutritionData);
+    // Атомарная проверка и списание запроса
+    const requestResult = await requestService.consumeRequestAtomic(userId);
+    
+    if (!requestResult.allowed) {
+      await showPaymentMethods(ctx, requestResult.reason);
+      return;
+    }
 
-    // Сохраняем результат через RequestService.saveRequest
+    logger.info(`User ${userId} request approved`, { 
+      usedPurchased: requestResult.usedPurchased 
+    });
+
+    // Получаем URL фотографии через Telegram API
+    const photoUrl = await ctx.telegram.getFileLink(fileId);
+    let imageToSend = photoUrl.href;
+
+    // Пытаемся сжать изображение если включено
+    if (IMAGE.COMPRESSION_ENABLED) {
+      try {
+        const compressedBuffer = await imageService.downloadAndCompress(photoUrl.href);
+        
+        if (compressedBuffer) {
+          imageToSend = imageService.bufferToDataUrl(compressedBuffer, IMAGE.FORMAT);
+          logger.info('Using compressed image for analysis', { userId });
+        }
+      } catch (compressionError) {
+        logger.warn('Image compression failed, using original', {
+          userId,
+          error: compressionError.message
+        });
+      }
+    }
+
+    // Отправляем фото в OpenAI для анализа
+    const nutritionData = await openaiService.analyzeFood(imageToSend, weight);
+    logger.info('Nutrition data received', { 
+      ...nutritionData,
+      cost: nutritionData.cost ? `$${nutritionData.cost.toFixed(4)}` : undefined,
+      tokens: nutritionData.tokens
+    });
+
+    // Сохраняем результат
     const savedRequest = await requestService.saveRequest(
       userId,
       fileId,
@@ -67,14 +129,9 @@ async function photoHandler(ctx) {
       weight
     );
 
-    // Форматируем и отправляем ответ с inline-кнопкой "Корректировать результаты"
-    const message = formatNutritionData({
-      ...nutritionData,
-      weight
-    });
-
+    // Отправляем результат пользователю
     await ctx.reply(
-      message,
+      formatNutritionData({ ...nutritionData, weight }),
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
@@ -84,19 +141,21 @@ async function photoHandler(ctx) {
     );
 
     logger.info(`Successfully processed photo for user ${userId}`, {
-      requestId: savedRequest.id
+      requestId: savedRequest.id,
+      cached: false
     });
 
   } catch (error) {
     logger.error('Error in photoHandler', {
       userId: ctx.from?.id,
       error: error.message,
+      errorType: error.type || 'unknown',
       stack: error.stack
     });
 
-    // Отправляем понятное сообщение пользователю
-    if (error.message.includes('API') || error.message.includes('timeout')) {
-      await ctx.reply(MESSAGES.API_ERROR);
+    // Отправляем сообщение в зависимости от типа ошибки
+    if (error.type) {
+      await ctx.reply(error.message);
     } else if (error.message.includes('database') || error.message.includes('DB')) {
       await ctx.reply(MESSAGES.DB_ERROR);
     } else {

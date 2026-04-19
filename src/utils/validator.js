@@ -2,6 +2,8 @@
  * Модуль валидации данных
  */
 
+const { VALIDATION } = require('../config/constants');
+
 /**
  * Проверяет, является ли значение положительным числом
  * @param {*} value - Значение для проверки
@@ -61,13 +63,13 @@ function validateNutritionValue(value, fieldName = 'Значение') {
   // Проверяем разумные пределы для пищевой ценности
   // Максимальные значения на порцию
   const maxValues = {
-    'Калории': 10000,
-    'Белки': 1000,
-    'Жиры': 1000,
-    'Углеводы': 1000
+    'Калории': VALIDATION.NUTRITION.MAX_CALORIES,
+    'Белки': VALIDATION.NUTRITION.MAX_PROTEIN,
+    'Жиры': VALIDATION.NUTRITION.MAX_FAT,
+    'Углеводы': VALIDATION.NUTRITION.MAX_CARBS
   };
 
-  const maxValue = maxValues[fieldName] || 10000;
+  const maxValue = maxValues[fieldName] || VALIDATION.NUTRITION.MAX_CALORIES;
   if (num > maxValue) {
     return {
       valid: false,
@@ -76,8 +78,9 @@ function validateNutritionValue(value, fieldName = 'Значение') {
     };
   }
 
-  // Округляем до 1 десятичного знака
-  const roundedValue = Math.round(num * 10) / 10;
+  // Округляем до заданного количества знаков после запятой
+  const multiplier = Math.pow(10, VALIDATION.NUTRITION.DECIMAL_PLACES);
+  const roundedValue = Math.round(num * multiplier) / multiplier;
 
   return {
     valid: true,
@@ -118,10 +121,10 @@ function validateWeight(weight) {
     };
   }
 
-  if (num > 10000) {
+  if (num > VALIDATION.WEIGHT.ABSOLUTE_MAX) {
     return {
       valid: false,
-      error: 'Вес не может превышать 10000 грамм',
+      error: `Вес не может превышать ${VALIDATION.WEIGHT.ABSOLUTE_MAX} грамм`,
       value: null
     };
   }

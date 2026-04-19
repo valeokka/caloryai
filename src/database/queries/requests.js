@@ -74,9 +74,28 @@ async function getRequestById(requestId) {
   return result.rows[0];
 }
 
+/**
+ * Найти кэшированный результат по file_id
+ * @param {string} fileId - File ID фотографии
+ * @param {number} maxAgeHours - Максимальный возраст кэша в часах
+ * @returns {Promise<Object|null>} Кэшированный запрос или null
+ */
+async function getCachedResult(fileId, maxAgeHours = 24) {
+  const query = `
+    SELECT * FROM requests_history
+    WHERE photo_file_id = $1
+      AND created_at > NOW() - INTERVAL '1 hour' * $2
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  const result = await pool.query(query, [fileId, maxAgeHours]);
+  return result.rows[0] || null;
+}
+
 module.exports = {
   createRequest,
   updateRequest,
   getTodayRequestCount,
   getRequestById,
+  getCachedResult,
 };
