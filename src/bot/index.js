@@ -189,15 +189,8 @@ function initializeBot() {
       await ctx.reply(MESSAGES.ERROR);
     }
   });
-        });
-        await ctx.answerCbQuery('Неизвестная команда');
-      }
-    } catch (error) {
-      logger.error('Error in callback_query handler', {
-        callbackData,
-        userId: ctx.from?.id,
-        error: error.message,
-        stack: error.stack
+
+  // Регистрируем обработчики платежей
       });
       
       await ctx.answerCbQuery('Произошла ошибка');
