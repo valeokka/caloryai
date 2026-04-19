@@ -1,24 +1,16 @@
 /**
  * Сервис для работы с OpenAI ChatGPT Vision API
+ * Оптимизирован для gpt-4o-mini с low качеством изображений
  */
 
 const OpenAI = require('openai');
 const logger = require('../utils/logger');
-const { OPENAI, MESSAGES, VALIDATION } = require('../config/constants');
+const { VALIDATION } = require('../config/constants');
 
-// Примерные цены OpenAI (обновляйте по актуальным тарифам)
 const PRICING = {
-  'gpt-4o': {
-    input: 0.0025,  // $ за 1K токенов (обновлено)
-    output: 0.01    // $ за 1K токенов (обновлено)
-  },
   'gpt-4o-mini': {
-    input: 0.00015,  // $ за 1K токенов (в 15 раз дешевле!)
-    output: 0.0006   // $ за 1K токенов
-  },
-  'gpt-4-turbo': {
-    input: 0.01,
-    output: 0.03
+    input: 0.00015,
+    output: 0.0006
   }
 };
 
@@ -26,7 +18,7 @@ class OpenAIService {
   constructor() {
     this.client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
-      timeout: OPENAI.TIMEOUT
+      timeout: 30000
     });
   }
 
@@ -34,7 +26,7 @@ class OpenAIService {
    * Анализировать фотографию еды
    * @param {string} photoUrl - URL фотографии
    * @param {number|null} weight - Вес порции в граммах
-   * @returns {Promise<Object>} { dishName, calories, protein, fat, carbs, cost }
+   * @returns {Promise<Object>} { dishName, calories, protein, fat, carbs, weight, cost, tokens }
    */
   async analyzeFood(photoUrl, weight = null) {
     const startTime = Date.now();
@@ -50,7 +42,7 @@ class OpenAIService {
       const duration = Date.now() - startTime;
       logger.info('Food analysis completed', { 
         duration: `${duration}ms`,
-        cost: result.cost ? `$${result.cost.toFixed(4)}` : 'unknown'
+        cost: `${result.cost.toFixed(4)}`
       });
 
       return result;
@@ -60,37 +52,29 @@ class OpenAIService {
         photoUrl, 
         weight, 
         duration: `${duration}ms`,
-        error: error.message,
-        errorType: error.constructor.name,
-        stack: error.stack
+        error: error.message
       });
       
-      // Улучшенная обработка ошибок
       throw this._handleOpenAIError(error);
     }
   }
 
   /**
    * Построить промпт для ChatGPT
-   * @param {number|null} weight - Вес порции в граммах
-   * @returns {string} Промпт
    */
   _buildPrompt(weight) {
-    // Максимально короткий промпт для экономии токенов
-    const w = weight ? `${weight}g` : `estimate weight`;
-    return `Food nutrition for ${w}. Reply ONLY with JSON, no markdown, no text:
-{"dishName":"","calories":0,"protein":0,"fat":0,"carbs":0}`;
+    if (weight) {
+      return `Analyze food. Weight: ${weight}g. Return JSON: {"name":"","weight":${weight},"kcal":0,"protein":0,"fat":0,"carbs":0}`;
+    }
+    return `Analyze food. Estimate weight. Return JSON: {"name":"","weight":0,"kcal":0,"protein":0,"fat":0,"carbs":0}`;
   }
 
   /**
    * Вызвать Vision API
-   * @param {string} photoUrl - URL фотографии
-   * @param {string} prompt - Промпт для анализа
-   * @returns {Promise<Object>} Результат анализа с информацией о стоимости
    */
   async _callVisionAPI(photoUrl, prompt) {
     const response = await this.client.chat.completions.create({
-      model: OPENAI.MODEL,
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'user',
@@ -100,144 +84,125 @@ class OpenAIService {
               type: 'image_url', 
               image_url: { 
                 url: photoUrl,
-                detail: 'high'  // high эффективнее для mini: меньше токенов и лучше качество
+                detail: 'low'
               } 
             }
           ]
         }
       ],
-      max_tokens: OPENAI.MAX_TOKENS,
-      temperature: 0.3,  // Меньше креативности = быстрее и дешевле
-      response_format: { type: "json_object" }  // Гарантирует чистый JSON без markdown
+      max_tokens: 150,
+      temperature: 0.2,
+      response_format: { type: "json_object" }
     });
 
     const content = response.choices[0].message.content;
     const usage = response.usage;
-
-    // Рассчитываем стоимость запроса
-    const cost = this._calculateCost(usage, OPENAI.MODEL);
+    const cost = this._calculateCost(usage);
     
-    logger.info('OpenAI response received', { 
+    logger.info('OpenAI response', { 
       content,
-      usage: {
-        promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
-        totalTokens: usage.total_tokens
-      },
-      cost: `$${cost.toFixed(4)}`
+      tokens: usage.total_tokens,
+      cost: `${cost.toFixed(4)}`
     });
 
-    // Парсим JSON из ответа (response_format гарантирует чистый JSON)
-    const result = JSON.parse(content);
+    // Парсим JSON
+    const data = JSON.parse(content);
 
-    // Валидация результата
-    if (!result.dishName || 
-        typeof result.calories !== 'number' ||
-        typeof result.protein !== 'number' ||
-        typeof result.fat !== 'number' ||
-        typeof result.carbs !== 'number') {
+    // Валидация структуры
+    if (!data.name || 
+        typeof data.weight !== 'number' ||
+        typeof data.kcal !== 'number' ||
+        typeof data.protein !== 'number' ||
+        typeof data.fat !== 'number' ||
+        typeof data.carbs !== 'number') {
       throw new Error('Invalid response format from OpenAI');
     }
 
     // Проверка на отрицательные значения
-    if (result.calories < 0 || result.protein < 0 || result.fat < 0 || result.carbs < 0) {
-      logger.warn('OpenAI returned negative values', result);
-      throw new Error('Invalid nutrition values from OpenAI');
+    if (data.weight < 0 || data.kcal < 0 || data.protein < 0 || data.fat < 0 || data.carbs < 0) {
+      logger.warn('Negative values', data);
+      throw new Error('Invalid nutrition values');
     }
 
-    // Проверка на нереалистично большие значения
-    if (result.calories > VALIDATION.NUTRITION.MAX_CALORIES ||
-        result.protein > VALIDATION.NUTRITION.MAX_PROTEIN ||
-        result.fat > VALIDATION.NUTRITION.MAX_FAT ||
-        result.carbs > VALIDATION.NUTRITION.MAX_CARBS) {
-      logger.warn('OpenAI returned unrealistic values', result);
-      throw new Error('Unrealistic nutrition values from OpenAI');
+    // Проверка на нереалистичные значения
+    if (data.kcal > VALIDATION.NUTRITION.MAX_CALORIES ||
+        data.protein > VALIDATION.NUTRITION.MAX_PROTEIN ||
+        data.fat > VALIDATION.NUTRITION.MAX_FAT ||
+        data.carbs > VALIDATION.NUTRITION.MAX_CARBS) {
+      logger.warn('Unrealistic values', data);
+      throw new Error('Unrealistic nutrition values');
     }
 
-    // Добавляем информацию о стоимости
-    result.cost = cost;
-    result.tokens = usage.total_tokens;
-
-    return result;
+    // Преобразуем в формат для совместимости с остальным кодом
+    return {
+      dishName: data.name,
+      calories: data.kcal,
+      protein: data.protein,
+      fat: data.fat,
+      carbs: data.carbs,
+      weight: data.weight,
+      cost: cost,
+      tokens: usage.total_tokens
+    };
   }
 
   /**
    * Рассчитать стоимость запроса
-   * @param {Object} usage - Информация об использовании токенов
-   * @param {string} model - Модель OpenAI
-   * @returns {number} Стоимость в долларах
    */
-  _calculateCost(usage, model) {
-    const pricing = PRICING[model] || PRICING['gpt-4o'];
+  _calculateCost(usage) {
+    const pricing = PRICING['gpt-4o-mini'];
     const inputCost = (usage.prompt_tokens / 1000) * pricing.input;
     const outputCost = (usage.completion_tokens / 1000) * pricing.output;
     return inputCost + outputCost;
   }
 
   /**
-   * Обработать ошибки OpenAI и вернуть понятное сообщение
-   * @param {Error} error - Ошибка от OpenAI
-   * @returns {Error} Обработанная ошибка с понятным сообщением
+   * Обработать ошибки OpenAI
    */
   _handleOpenAIError(error) {
     const errorMessage = error.message.toLowerCase();
     
-    // Timeout ошибки
-    if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
-      const err = new Error(MESSAGES.API_ERROR);
+    if (errorMessage.includes('timeout')) {
+      const err = new Error('⚠️ Превышено время ожидания. Попробуй ещё раз.');
       err.type = 'timeout';
       return err;
     }
     
-    // Rate limit ошибки
     if (errorMessage.includes('rate limit') || error.status === 429) {
-      const err = new Error('⚠️ Слишком много запросов к AI. Попробуй через минуту.');
+      const err = new Error('⚠️ Слишком много запросов. Попробуй через минуту.');
       err.type = 'rate_limit';
       return err;
     }
     
-    // Ошибки аутентификации
-    if (errorMessage.includes('authentication') || 
-        errorMessage.includes('api key') || 
-        error.status === 401) {
-      logger.error('OpenAI authentication error - check API key');
-      const err = new Error(MESSAGES.API_ERROR);
+    if (errorMessage.includes('authentication') || error.status === 401) {
+      logger.error('OpenAI auth error');
+      const err = new Error('⚠️ Ошибка сервиса. Попробуй позже.');
       err.type = 'auth';
       return err;
     }
     
-    // Ошибки недостаточного баланса
-    if (errorMessage.includes('insufficient') || 
-        errorMessage.includes('quota') ||
-        error.status === 402) {
-      logger.error('OpenAI quota exceeded - check billing');
-      const err = new Error('⚠️ Сервис временно недоступен. Попробуй позже.');
+    if (errorMessage.includes('quota') || error.status === 402) {
+      logger.error('OpenAI quota exceeded');
+      const err = new Error('⚠️ Сервис временно недоступен.');
       err.type = 'quota';
       return err;
     }
     
-    // Ошибки контента (модерация)
-    if (errorMessage.includes('content policy') || 
-        errorMessage.includes('safety') ||
-        error.status === 400) {
-      const err = new Error('⚠️ Не удалось обработать это изображение. Попробуй другое фото.');
+    if (errorMessage.includes('content') || error.status === 400) {
+      const err = new Error('⚠️ Не удалось обработать изображение. Попробуй другое фото.');
       err.type = 'content';
       return err;
     }
     
-    // Общая ошибка API
-    const err = new Error(MESSAGES.API_ERROR);
+    const err = new Error('⚠️ Ошибка обработки. Попробуй ещё раз.');
     err.type = 'unknown';
     return err;
   }
 
   /**
-   * Retry логика с экспоненциальной задержкой
-   * @param {Function} fn - Функция для выполнения
-   * @param {number} maxRetries - Максимальное количество попыток
-   * @returns {Promise<any>} Результат выполнения функции
+   * Retry с экспоненциальной задержкой
    */
-  async _retryWithBackoff(fn, maxRetries = OPENAI.MAX_RETRIES) {
+  async _retryWithBackoff(fn, maxRetries = 2) {
     let lastError;
 
     for (let i = 0; i < maxRetries; i++) {
@@ -246,35 +211,21 @@ class OpenAIService {
       } catch (error) {
         lastError = error;
         
-        // Не ретраим ошибки аутентификации и контента
+        // Не ретраим критичные ошибки
         if (error.status === 401 || error.status === 400 || error.status === 402) {
           break;
         }
         
-        if (i === maxRetries - 1) {
-          break;
-        }
+        if (i === maxRetries - 1) break;
 
-        const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s...
-        logger.warn(`Retry attempt ${i + 1}/${maxRetries} after ${delay}ms`, {
-          error: error.message,
-          status: error.status
-        });
+        const delay = Math.pow(2, i) * 1000;
+        logger.warn(`Retry ${i + 1}/${maxRetries} after ${delay}ms`);
         
-        await this._sleep(delay);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 
     throw lastError;
-  }
-
-  /**
-   * Вспомогательная функция для задержки
-   * @param {number} ms - Миллисекунды
-   * @returns {Promise<void>}
-   */
-  _sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
