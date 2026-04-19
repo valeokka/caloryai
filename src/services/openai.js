@@ -9,8 +9,12 @@ const { OPENAI, MESSAGES, VALIDATION } = require('../config/constants');
 // Примерные цены OpenAI (обновляйте по актуальным тарифам)
 const PRICING = {
   'gpt-4o': {
-    input: 0.005,  // $ за 1K токенов
-    output: 0.015  // $ за 1K токенов
+    input: 0.0025,  // $ за 1K токенов (обновлено)
+    output: 0.01    // $ за 1K токенов (обновлено)
+  },
+  'gpt-4o-mini': {
+    input: 0.00015,  // $ за 1K токенов (в 15 раз дешевле!)
+    output: 0.0006   // $ за 1K токенов
   },
   'gpt-4-turbo': {
     input: 0.01,
@@ -72,13 +76,9 @@ class OpenAIService {
    * @returns {string} Промпт
    */
   _buildPrompt(weight) {
-    // Короткий промпт на английском для экономии токенов
-    const weightInfo = weight 
-      ? `Portion: ${weight}g.` 
-      : `Estimate portion weight.`;
-    
-    return `Analyze food image. ${weightInfo} Return JSON only:
-{"dishName":"dish name","calories":number,"protein":number,"fat":number,"carbs":number}`;
+    // Максимально короткий промпт для экономии токенов
+    const w = weight ? `${weight}g` : `est.weight`;
+    return `Food ${w}. JSON:{"dishName":"","calories":0,"protein":0,"fat":0,"carbs":0}`;
   }
 
   /**
@@ -95,11 +95,18 @@ class OpenAIService {
           role: 'user',
           content: [
             { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: photoUrl } }
+            { 
+              type: 'image_url', 
+              image_url: { 
+                url: photoUrl,
+                detail: 'low'  // Экономия ~85% токенов на изображение (85 вместо 765+)
+              } 
+            }
           ]
         }
       ],
-      max_tokens: OPENAI.MAX_TOKENS
+      max_tokens: OPENAI.MAX_TOKENS,
+      temperature: 0.3  // Меньше креативности = быстрее и дешевле
     });
 
     const content = response.choices[0].message.content;
