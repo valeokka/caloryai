@@ -35,6 +35,10 @@ const {
   isProfileMessage
 } = require('./handlers/profile');
 const {
+  showTodayDiary,
+  diaryCallbackHandler
+} = require('./handlers/diary');
+const {
   showGoalModeSelection,
   showSimpleModeGoals,
   handleSimpleGoalSelection,
@@ -106,6 +110,7 @@ function initializeBot() {
   bot.command('start', startHandler);
   bot.command('status', statusHandler);
   bot.command('profile', profileHandler);
+  bot.command('diary', showTodayDiary);
 
   // Регистрируем обработчик фотографий
   bot.on('photo', photoHandler);
@@ -155,6 +160,13 @@ function initializeBot() {
           await applyAdvancedDefaults(ctx);
         } else if (callbackData.startsWith('goal_adv_def_')) {
           await handleAdvancedDefaults(ctx);
+        } else if (callbackData === 'goal_back') {
+          await profileHandler(ctx);
+        }
+      } else if (callbackData.startsWith('diary_')) {
+        // Обработка дневника
+        await diaryCallbackHandler(ctx);
+      } else if (callbackData.startsWith('buy_')) {
         } else if (callbackData === 'goal_back') {
           await profileHandler(ctx);
         }

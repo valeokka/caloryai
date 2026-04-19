@@ -78,7 +78,8 @@ async function runMigration() {
     const migrationFiles = [
       'init.sql',
       'add_user_profiles.sql',
-      'add_nutrition_goals.sql'
+      'add_nutrition_goals.sql',
+      'add_daily_reports.sql'
     ];
     
     console.log('📄 Чтение файлов миграций...');

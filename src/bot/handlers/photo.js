@@ -138,6 +138,11 @@ async function photoHandler(ctx) {
       finalWeight
     );
 
+    // Обновляем дневной отчет
+    const dailyReportsQueries = require('../database/queries/dailyReports');
+    await dailyReportsQueries.getOrCreateDailyReport(userId);
+    await dailyReportsQueries.updateConsumedValues(userId);
+
     // Проверяем наличие профиля для показа прогресса
     const profile = await profileService.getProfile(userId);
     let message = formatNutritionData(nutritionData);
