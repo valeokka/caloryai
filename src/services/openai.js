@@ -6,6 +6,7 @@
 const OpenAI = require('openai');
 const logger = require('../utils/logger');
 const { VALIDATION } = require('../config/constants');
+const { calculateCalories } = require('../utils/nutrition');
 
 const PRICING = {
   'gpt-4o-mini': {
@@ -64,9 +65,9 @@ class OpenAIService {
    */
   _buildPrompt(weight) {
     if (weight) {
-      return `Food photo analysis. Weight: ${weight}g. Dish name in Russian. JSON only: {"name":"","weight":${weight},"kcal":0,"protein":0,"fat":0,"carbs":0}`;
+      return `Food photo analysis. Weight: ${weight}g. Dish name in Russian. JSON only: {"name":"","weight":${weight},"protein":0,"fat":0,"carbs":0}`;
     }
-    return `Food photo analysis. Estimate portion weight in grams. Dish name in Russian. JSON only: {"name":"","weight":0,"kcal":0,"protein":0,"fat":0,"carbs":0}`;
+    return `Food photo analysis. Estimate portion weight in grams. Dish name in Russian. JSON only: {"name":"","weight":0,"protein":0,"fat":0,"carbs":0}`;
   }
 
   /**
@@ -108,10 +109,9 @@ class OpenAIService {
     // Парсим JSON
     const data = JSON.parse(content);
 
-    // Валидация структуры
+    // Валидация структуры (без kcal)
     if (!data.name || 
         typeof data.weight !== 'number' ||
-        typeof data.kcal !== 'number' ||
         typeof data.protein !== 'number' ||
         typeof data.fat !== 'number' ||
         typeof data.carbs !== 'number') {
@@ -119,24 +119,26 @@ class OpenAIService {
     }
 
     // Проверка на отрицательные значения
-    if (data.weight < 0 || data.kcal < 0 || data.protein < 0 || data.fat < 0 || data.carbs < 0) {
+    if (data.weight < 0 || data.protein < 0 || data.fat < 0 || data.carbs < 0) {
       logger.warn('Negative values', data);
       throw new Error('Invalid nutrition values');
     }
 
     // Проверка на нереалистичные значения
-    if (data.kcal > VALIDATION.NUTRITION.MAX_CALORIES ||
-        data.protein > VALIDATION.NUTRITION.MAX_PROTEIN ||
+    if (data.protein > VALIDATION.NUTRITION.MAX_PROTEIN ||
         data.fat > VALIDATION.NUTRITION.MAX_FAT ||
         data.carbs > VALIDATION.NUTRITION.MAX_CARBS) {
       logger.warn('Unrealistic values', data);
       throw new Error('Unrealistic nutrition values');
     }
 
+    // Рассчитываем калории на основе БЖУ
+    const calculatedCalories = calculateCalories(data.protein, data.fat, data.carbs);
+
     // Преобразуем в формат для совместимости с остальным кодом
     return {
       dishName: data.name,
-      calories: data.kcal,
+      calories: calculatedCalories,
       protein: data.protein,
       fat: data.fat,
       carbs: data.carbs,

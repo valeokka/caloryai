@@ -74,6 +74,13 @@ module.exports = {
     }
   },
 
+  // Калорийность макронутриентов
+  CALORIES_PER_GRAM: {
+    PROTEIN: 4,  // 1г белка = 4 ккал
+    FAT: 9,      // 1г жира = 9 ккал
+    CARBS: 4     // 1г углеводов = 4 ккал
+  },
+
   // Настройки кэширования
   CACHE: {
     ENABLED: process.env.CACHE_ENABLED !== 'false',  // по умолчанию включено

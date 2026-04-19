@@ -6,6 +6,7 @@ const { Markup } = require('telegraf');
 const requestService = require('../../services/requestService');
 const { validateNutritionValue } = require('../../utils/validator');
 const { formatNutritionData } = require('../../utils/formatter');
+const { calculateCalories, recalculateByWeight } = require('../../utils/nutrition');
 const { MESSAGES } = require('../../config/constants');
 const logger = require('../../utils/logger');
 
@@ -198,21 +199,21 @@ async function handleCorrectionInput(ctx) {
       weight: currentRequest.weight
     };
 
-    // Если меняем вес - пересчитываем все значения
+    // Если меняем вес - пересчитываем все значения включая калории
     if (parameter === 'weight') {
-      const oldWeight = currentRequest.weight || 100;
-      const newWeight = validation.value;
-      const ratio = newWeight / oldWeight;
-
-      updatedNutritionData = {
-        weight: newWeight,
-        calories: currentRequest.calories * ratio,
-        protein: currentRequest.protein * ratio,
-        fat: currentRequest.fat * ratio,
-        carbs: currentRequest.carbs * ratio
-      };
-    } else {
-      // Обновляем конкретный параметр
+      updatedNutritionData = recalculateByWeight(currentRequest, validation.value);
+    } 
+    // Если меняем БЖУ - пересчитываем калории
+    else if (parameter === 'protein' || parameter === 'fat' || parameter === 'carbs') {
+      updatedNutritionData[parameter] = validation.value;
+      updatedNutritionData.calories = calculateCalories(
+        updatedNutritionData.protein,
+        updatedNutritionData.fat,
+        updatedNutritionData.carbs
+      );
+    } 
+    // Если меняем калории напрямую - просто обновляем
+    else {
       updatedNutritionData[parameter] = validation.value;
     }
 
