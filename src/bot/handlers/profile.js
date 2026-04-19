@@ -82,6 +82,12 @@ async function profileCallbackHandler(ctx) {
       await startManualGoalInput(ctx);
     } else if (callbackData === 'profile_goal_recalculate') {
       await recalculateGoal(ctx);
+    } else if (callbackData === 'profile_goal_skip') {
+      await ctx.editMessageText(
+        '✅ Профиль сохранен!\n\n' +
+        '📸 Теперь отправляйте фото еды для анализа калорий!\n' +
+        'Используйте /profile для управления профилем и изменения цели.'
+      );
     } else if (callbackData === 'profile_delete') {
       await deleteProfile(ctx);
     } else if (callbackData === 'profile_cancel') {
@@ -323,7 +329,7 @@ async function handleActivitySelection(ctx) {
     await ctx.answerCbQuery();
     
     // Создаем профиль с расчетом калорий
-    const { profile, bmr, dailyCalories } = await profileService.createOrUpdateProfile(telegramId, {
+    const { profile, bmr, dailyCalories, nutrition } = await profileService.createOrUpdateProfile(telegramId, {
       gender: state.gender,
       age: state.age,
       weight: state.weight,
@@ -347,10 +353,20 @@ async function handleActivitySelection(ctx) {
       `Рост: ${state.height} см\n` +
       `Активность: ${activityName}\n\n` +
       `📊 Базальный метаболизм (BMR): ${bmr} ккал\n` +
-      `🎯 Суточная норма калорий: ${dailyCalories} ккал\n\n` +
-      'Расчет выполнен по формуле Миффлина-Сан Жеора.\n\n' +
-      '📸 Теперь отправляйте фото еды для анализа калорий!\n' +
-      'Используйте /profile для управления профилем.'
+      `🎯 Суточная норма (TDEE): ${dailyCalories} ккал\n\n` +
+      `По умолчанию установлена цель: ⚖️ Поддержание веса (0%)\n` +
+      `Калории: ${nutrition.target_calories} ккал\n` +
+      `Белки: ${nutrition.protein_g} г | Жиры: ${nutrition.fat_g} г | Углеводы: ${nutrition.carbs_g} г\n\n` +
+      '🎯 Хотите настроить цель?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '⚡ Упрощенный режим', callback_data: 'goal_mode_simple' }],
+            [{ text: '⚙️ Расширенный режим', callback_data: 'goal_mode_advanced' }],
+            [{ text: '✅ Оставить как есть', callback_data: 'profile_goal_skip' }]
+          ]
+        }
+      }
     );
   } catch (error) {
     logger.error('Error creating profile', {
