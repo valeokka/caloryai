@@ -47,8 +47,8 @@ async function profileHandler(ctx) {
         `Активность: ${activityName}\n\n` +
         `🎯 Цель калорий: ${profile.calorie_goal} ккал/день ${goalSource}`,
         Markup.inlineKeyboard([
+          [Markup.button.callback('🎯 Настроить цель', 'goal_mode_select')],
           [Markup.button.callback('🔄 Заполнить заново', 'profile_create')],
-          [Markup.button.callback('🎯 Изменить цель', 'profile_change_goal')],
           [Markup.button.callback('🗑 Удалить профиль', 'profile_delete')],
           [Markup.button.callback('❌ Закрыть', 'profile_cancel')]
         ])

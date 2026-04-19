@@ -34,6 +34,18 @@ const {
   handleActivitySelection,
   isProfileMessage
 } = require('./handlers/profile');
+const {
+  showGoalModeSelection,
+  showSimpleModeGoals,
+  handleSimpleGoalSelection,
+  showAdvancedMode,
+  startAdvancedCaloriesInput,
+  startAdvancedMacrosInput,
+  applyAdvancedDefaults,
+  handleAdvancedDefaults,
+  handleAdvancedInput,
+  isGoalMessage
+} = require('./handlers/goals');
 
 // Константы
 const { MESSAGES } = require('../config/constants');
@@ -125,6 +137,27 @@ function initializeBot() {
         } else {
           await profileCallbackHandler(ctx);
         }
+      } else if (callbackData.startsWith('goal_')) {
+        // Обработка целей
+        if (callbackData === 'goal_mode_select') {
+          await showGoalModeSelection(ctx);
+        } else if (callbackData === 'goal_mode_simple') {
+          await showSimpleModeGoals(ctx);
+        } else if (callbackData === 'goal_mode_advanced') {
+          await showAdvancedMode(ctx);
+        } else if (callbackData.startsWith('goal_simple_')) {
+          await handleSimpleGoalSelection(ctx);
+        } else if (callbackData === 'goal_adv_calories') {
+          await startAdvancedCaloriesInput(ctx);
+        } else if (callbackData === 'goal_adv_macros') {
+          await startAdvancedMacrosInput(ctx);
+        } else if (callbackData === 'goal_adv_defaults') {
+          await applyAdvancedDefaults(ctx);
+        } else if (callbackData.startsWith('goal_adv_def_')) {
+          await handleAdvancedDefaults(ctx);
+        } else if (callbackData === 'goal_back') {
+          await profileHandler(ctx);
+        }
       } else if (callbackData.startsWith('buy_')) {
         // legacy кнопки — просто закрываем без сообщения
         await ctx.answerCbQuery();
@@ -153,11 +186,14 @@ function initializeBot() {
   bot.on('pre_checkout_query', handlePreCheckout);
   bot.on('successful_payment', handleSuccessfulPayment);
 
-  // Обработчик текстовых сообщений (для корректировки и профиля)
+  // Обработчик текстовых сообщений (для корректировки, профиля и целей)
   bot.on('text', async (ctx) => {
     try {
-      // Проверяем, является ли это сообщением профиля
-      if (isProfileMessage(ctx)) {
+      // Проверяем, является ли это сообщением целей
+      if (isGoalMessage(ctx)) {
+        await handleAdvancedInput(ctx);
+      } else if (isProfileMessage(ctx)) {
+        // Проверяем, является ли это сообщением профиля
         await handleProfileInput(ctx);
       } else if (isCorrectionMessage(ctx)) {
         // Проверяем, является ли это сообщением корректировки

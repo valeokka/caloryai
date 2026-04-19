@@ -77,7 +77,8 @@ async function runMigration() {
     const migrationsDir = path.join(__dirname, '..', 'src', 'database', 'migrations');
     const migrationFiles = [
       'init.sql',
-      'add_user_profiles.sql'
+      'add_user_profiles.sql',
+      'add_nutrition_goals.sql'
     ];
     
     console.log('📄 Чтение файлов миграций...');

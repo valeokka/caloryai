@@ -20,17 +20,27 @@ class ProfileService {
   }
 
   /**
-   * Создать или обновить профиль с расчетом калорий
+   * Создать или обновить профиль с расчетом калорий и нутриентов
    */
   async createOrUpdateProfile(telegramId, { gender, age, weight, height, activityLevel }) {
     try {
-      // Рассчитываем норму калорий
+      // Рассчитываем BMR и TDEE
       const { bmr, dailyCalories } = calorieCalculator.calculate({
         gender,
         weight,
         height,
         age,
         activityLevel
+      });
+
+      // По умолчанию: поддержание веса (0%)
+      const nutritionCalculator = require('./nutritionCalculator');
+      const nutrition = nutritionCalculator.calculateSimpleMode({
+        tdee: dailyCalories,
+        bmr,
+        gender,
+        weight,
+        percent: 0
       });
 
       // Сохраняем профиль
@@ -40,17 +50,28 @@ class ProfileService {
         weight,
         height,
         activityLevel,
-        calorieGoal: dailyCalories,
-        isManualGoal: false
+        calorieGoal: nutrition.target_calories,
+        isManualGoal: false,
+        goalType: nutrition.goal_type,
+        goalMode: nutrition.goal_mode,
+        goalPercent: nutrition.goal_percent,
+        tdee: nutrition.tdee,
+        targetCalories: nutrition.target_calories,
+        proteinPerKg: nutrition.protein_per_kg,
+        fatPerKg: nutrition.fat_per_kg,
+        proteinG: nutrition.protein_g,
+        fatG: nutrition.fat_g,
+        carbsG: nutrition.carbs_g
       });
 
       logger.info('Profile created/updated', { 
         telegramId, 
         bmr, 
-        dailyCalories 
+        tdee: dailyCalories,
+        targetCalories: nutrition.target_calories
       });
 
-      return { profile, bmr, dailyCalories };
+      return { profile, bmr, dailyCalories, nutrition };
     } catch (error) {
       logger.error('Error creating/updating profile', { 
         telegramId, 
@@ -143,6 +164,116 @@ class ProfileService {
       return profile;
     } catch (error) {
       logger.error('Error deleting profile', { 
+        telegramId, 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Установить цель (упрощенный режим)
+   */
+  async setGoalSimple(telegramId, percent) {
+    try {
+      const profile = await profileQueries.getProfile(telegramId);
+      
+      if (!profile) {
+        throw new Error('Профиль не найден. Сначала заполните профиль.');
+      }
+
+      const nutritionCalculator = require('./nutritionCalculator');
+      const { bmr } = calorieCalculator.calculate({
+        gender: profile.gender,
+        weight: profile.weight,
+        height: profile.height,
+        age: profile.age,
+        activityLevel: parseFloat(profile.activity_level)
+      });
+
+      const nutrition = nutritionCalculator.calculateSimpleMode({
+        tdee: profile.tdee || profile.calorie_goal,
+        bmr,
+        gender: profile.gender,
+        weight: profile.weight,
+        percent
+      });
+
+      const updatedProfile = await profileQueries.updateGoalAndNutrition(telegramId, {
+        goalType: nutrition.goal_type,
+        goalMode: nutrition.goal_mode,
+        goalPercent: nutrition.goal_percent,
+        tdee: nutrition.tdee,
+        targetCalories: nutrition.target_calories,
+        proteinPerKg: nutrition.protein_per_kg,
+        fatPerKg: nutrition.fat_per_kg,
+        proteinG: nutrition.protein_g,
+        fatG: nutrition.fat_g,
+        carbsG: nutrition.carbs_g
+      });
+
+      logger.info('Goal set (simple mode)', { telegramId, percent, nutrition });
+
+      return { profile: updatedProfile, nutrition };
+    } catch (error) {
+      logger.error('Error setting goal (simple)', { 
+        telegramId, 
+        percent,
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Установить цель (расширенный режим)
+   */
+  async setGoalAdvanced(telegramId, { calories, percent, proteinPerKg, fatPerKg }) {
+    try {
+      const profile = await profileQueries.getProfile(telegramId);
+      
+      if (!profile) {
+        throw new Error('Профиль не найден. Сначала заполните профиль.');
+      }
+
+      const nutritionCalculator = require('./nutritionCalculator');
+      const { bmr } = calorieCalculator.calculate({
+        gender: profile.gender,
+        weight: profile.weight,
+        height: profile.height,
+        age: profile.age,
+        activityLevel: parseFloat(profile.activity_level)
+      });
+
+      const nutrition = nutritionCalculator.calculateAdvancedMode({
+        tdee: profile.tdee || profile.calorie_goal,
+        bmr,
+        gender: profile.gender,
+        weight: profile.weight,
+        calories,
+        percent,
+        proteinPerKg,
+        fatPerKg
+      });
+
+      const updatedProfile = await profileQueries.updateGoalAndNutrition(telegramId, {
+        goalType: nutrition.goal_type,
+        goalMode: nutrition.goal_mode,
+        goalPercent: nutrition.goal_percent,
+        tdee: nutrition.tdee,
+        targetCalories: nutrition.target_calories,
+        proteinPerKg: nutrition.protein_per_kg,
+        fatPerKg: nutrition.fat_per_kg,
+        proteinG: nutrition.protein_g,
+        fatG: nutrition.fat_g,
+        carbsG: nutrition.carbs_g
+      });
+
+      logger.info('Goal set (advanced mode)', { telegramId, nutrition });
+
+      return { profile: updatedProfile, nutrition };
+    } catch (error) {
+      logger.error('Error setting goal (advanced)', { 
         telegramId, 
         error: error.message 
       });
