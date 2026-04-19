@@ -191,14 +191,6 @@ function initializeBot() {
   });
 
   // Регистрируем обработчики платежей
-      });
-      
-      await ctx.answerCbQuery('Произошла ошибка');
-      await ctx.reply(MESSAGES.ERROR);
-    }
-  });
-
-  // Регистрируем обработчики платежей
   bot.on('pre_checkout_query', handlePreCheckout);
   bot.on('successful_payment', handleSuccessfulPayment);
 
