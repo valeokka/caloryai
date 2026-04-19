@@ -274,16 +274,21 @@ Rules:
 
         logger.info('OpenAI text response', { content, tokens: usage.total_tokens });
 
-        // Парсим JSON
-        const jsonMatch = content.match(/\{[^}]+\}/);
+        // Парсим JSON (может быть в markdown блоке)
+        let jsonMatch = content.match(/```json\s*(\{[^`]+\})\s*```/);
+        if (!jsonMatch) {
+          jsonMatch = content.match(/\{[^}]+\}/);
+        }
+        
         if (!jsonMatch) {
           throw new Error('Invalid JSON response from OpenAI');
         }
 
-        const data = JSON.parse(jsonMatch[0]);
+        const jsonStr = jsonMatch[1] || jsonMatch[0];
+        const data = JSON.parse(jsonStr);
 
         // Валидация
-        if (!data.protein || !data.fat || !data.carbs) {
+        if (data.protein === undefined || data.fat === undefined || data.carbs === undefined) {
           throw new Error('Missing nutritional data in response');
         }
 

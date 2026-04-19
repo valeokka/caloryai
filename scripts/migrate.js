@@ -79,7 +79,8 @@ async function runMigration() {
       'init.sql',
       'add_user_profiles.sql',
       'add_nutrition_goals.sql',
-      'add_daily_reports.sql'
+      'add_daily_reports.sql',
+      'make_photo_file_id_nullable.sql'
     ];
     
     console.log('📄 Чтение файлов миграций...');
