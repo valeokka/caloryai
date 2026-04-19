@@ -64,9 +64,9 @@ class OpenAIService {
    */
   _buildPrompt(weight) {
     if (weight) {
-      return `Analyze food. Weight: ${weight}g. Return JSON: {"name":"","weight":${weight},"kcal":0,"protein":0,"fat":0,"carbs":0}`;
+      return `Analyze food. Weight: ${weight}g. Name in Russian. Return JSON: {"name":"","weight":${weight},"kcal":0,"protein":0,"fat":0,"carbs":0}`;
     }
-    return `Analyze food. Estimate weight. Return JSON: {"name":"","weight":0,"kcal":0,"protein":0,"fat":0,"carbs":0}`;
+    return `Analyze food. Estimate weight. Name in Russian. Return JSON: {"name":"","weight":0,"kcal":0,"protein":0,"fat":0,"carbs":0}`;
   }
 
   /**
