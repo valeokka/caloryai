@@ -13,6 +13,7 @@ const rateLimitMiddleware = require('./middleware/rateLimit');
 // Handlers
 const startHandler = require('./handlers/start');
 const statusHandler = require('./handlers/status');
+const buyHandler = require('./handlers/buy');
 const photoHandler = require('./handlers/photo');
 const { 
   correctionHandler, 
@@ -113,6 +114,7 @@ function initializeBot() {
   
   bot.command('start', startHandler);
   bot.command('status', statusHandler);
+  bot.command('buy', buyHandler);
   bot.command('profile', profileHandler);
   bot.command('diary', showTodayDiary);
 
@@ -225,6 +227,7 @@ function initializeBot() {
           'Доступные команды:\n' +
           '/start - показать приветствие\n' +
           '/status - проверить статус и лимиты\n' +
+          '/buy - купить дополнительные запросы\n' +
           '/profile - управление профилем\n' +
           '/diary - дневник питания'
         );
