@@ -294,7 +294,7 @@ async function handleCorrectionInput(ctx) {
       requestId,
       parameter,
       oldValue: currentRequest[parameter],
-      newValue: validation.value
+      newValue: parameter === 'name' ? updatedNutritionData.dishName : updatedNutritionData[parameter]
     });
 
   } catch (error) {
