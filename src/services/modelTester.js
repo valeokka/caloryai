@@ -15,37 +15,43 @@ const MODEL_PRICING = {
     input: 0.05,
     output: 0.40,
     name: 'GPT-5 Nano',
-    useMaxCompletionTokens: true
+    useMaxCompletionTokens: true,
+    supportsTemperature: false
   },
   'gpt-5-mini': {
     input: 0.25,
     output: 2.00,
     name: 'GPT-5 Mini',
-    useMaxCompletionTokens: true
+    useMaxCompletionTokens: true,
+    supportsTemperature: false
   },
   'gpt-4.1-mini': {
     input: 0.40,
     output: 1.60,
     name: 'GPT-4.1 Mini',
-    useMaxCompletionTokens: false
+    useMaxCompletionTokens: false,
+    supportsTemperature: true
   },
   'gpt-4.1-nano': {
     input: 0.10,
     output: 0.40,
     name: 'GPT-4.1 Nano',
-    useMaxCompletionTokens: false
+    useMaxCompletionTokens: false,
+    supportsTemperature: true
   },
   'o4-mini': {
     input: 1.10,
     output: 4.40,
     name: 'O4 Mini',
-    useMaxCompletionTokens: true
+    useMaxCompletionTokens: true,
+    supportsTemperature: false
   },
   'gpt-4o-mini': {
     input: 0.15,
     output: 0.60,
     name: 'GPT-4o Mini',
-    useMaxCompletionTokens: false
+    useMaxCompletionTokens: false,
+    supportsTemperature: true
   }
 };
 
@@ -98,6 +104,7 @@ class ModelTester {
    */
   async testModelByText(modelId, foodName, weight) {
     const startTime = Date.now();
+    let prompt = 'N/A'; // Объявляем переменную в начале
     
     try {
       logger.info('Testing model by text', { modelId, foodName, weight });
@@ -107,7 +114,7 @@ class ModelTester {
         throw new Error(`Модель ${modelId} не найдена`);
       }
 
-      const prompt = `Analyze this food item and provide nutritional information.
+      prompt = `Analyze this food item and provide nutritional information.
 Food: ${foodName}
 Weight: ${weight}g
 
@@ -130,7 +137,6 @@ Rules:
             content: prompt
           }
         ],
-        temperature: 0.3,
         response_format: { type: "json_object" }
       };
 
@@ -139,6 +145,11 @@ Rules:
         requestParams.max_completion_tokens = 150;
       } else {
         requestParams.max_tokens = 150;
+      }
+
+      // Добавляем temperature только для моделей, которые его поддерживают
+      if (pricing.supportsTemperature) {
+        requestParams.temperature = 0.3;
       }
 
       const response = await this.client.chat.completions.create(requestParams);
@@ -241,6 +252,7 @@ Rules:
    */
   async testModelByPhoto(modelId, photoUrl, weight = null) {
     const startTime = Date.now();
+    let prompt = 'N/A'; // Объявляем переменную в начале
     
     try {
       logger.info('Testing model by photo', { modelId, photoUrl, weight });
@@ -250,7 +262,7 @@ Rules:
         throw new Error(`Модель ${modelId} не найдена`);
       }
 
-      const prompt = weight
+      prompt = weight
         ? `Food photo analysis. Weight: ${weight}g. Dish name in Russian. JSON only: {"name":"","weight":${weight},"protein":0,"fat":0,"carbs":0}`
         : `Food photo analysis. Estimate portion weight in grams. Dish name in Russian. JSON only: {"name":"","weight":0,"protein":0,"fat":0,"carbs":0}`;
 
@@ -272,7 +284,6 @@ Rules:
             ]
           }
         ],
-        temperature: 0.2,
         response_format: { type: "json_object" }
       };
 
@@ -281,6 +292,11 @@ Rules:
         requestParams.max_completion_tokens = 150;
       } else {
         requestParams.max_tokens = 150;
+      }
+
+      // Добавляем temperature только для моделей, которые его поддерживают
+      if (pricing.supportsTemperature) {
+        requestParams.temperature = 0.2;
       }
 
       const response = await this.client.chat.completions.create(requestParams);
