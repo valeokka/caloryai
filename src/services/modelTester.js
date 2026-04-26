@@ -204,8 +204,13 @@ class ModelTester {
         throw new Error(`Модель ${modelId} не найдена`);
       }
 
-      // Используем стандартный промпт для всех моделей
-      prompt = `Analyze this food item and provide nutritional information.
+      // Используем разные промпты для разных моделей
+      if (modelId.includes('nano')) {
+        // Для Nano моделей - промпт без примера с нулями
+        prompt = `Analyze food item: ${foodName}, weight: ${weight}g. Provide nutritional information in JSON format with fields: name (keep original Russian name), weight, protein, fat, carbs (all nutrients in grams for this portion).`;
+      } else {
+        // Для остальных моделей - детальный промпт
+        prompt = `Analyze this food item and provide nutritional information.
 Food: ${foodName}
 Weight: ${weight}g
 
@@ -218,6 +223,7 @@ Rules:
 - protein, fat, carbs: in grams for this portion
 - Use typical nutritional values for this food
 - Be realistic and accurate`;
+      }
 
       // Подготавливаем параметры запроса
       const requestParams = {
@@ -377,10 +383,18 @@ Rules:
         };
       }
 
-      // Используем стандартный промпт для всех моделей
-      prompt = weight
-        ? `Food photo analysis. Weight: ${weight}g. Dish name in Russian. JSON only: {"name":"","weight":${weight},"protein":0,"fat":0,"carbs":0}`
-        : `Food photo analysis. Estimate portion weight in grams. Dish name in Russian. JSON only: {"name":"","weight":0,"protein":0,"fat":0,"carbs":0}`;
+      // Используем разные промпты для разных моделей
+      if (modelId.includes('nano')) {
+        // Для Nano моделей - промпт без примера с нулями
+        prompt = weight
+          ? `Analyze this food photo. Weight is ${weight}g. Provide nutritional information in JSON format with fields: name (in Russian), weight, protein, fat, carbs (all nutrients in grams).`
+          : `Analyze this food photo. Estimate portion weight and provide nutritional information in JSON format with fields: name (in Russian), weight, protein, fat, carbs (all nutrients in grams).`;
+      } else {
+        // Для остальных моделей - стандартный промпт
+        prompt = weight
+          ? `Food photo analysis. Weight: ${weight}g. Dish name in Russian. JSON only: {"name":"","weight":${weight},"protein":0,"fat":0,"carbs":0}`
+          : `Food photo analysis. Estimate portion weight in grams. Dish name in Russian. JSON only: {"name":"","weight":0,"protein":0,"fat":0,"carbs":0}`;
+      }
 
       // Подготавливаем параметры запроса
       const requestParams = {
