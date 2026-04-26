@@ -11,7 +11,7 @@ const http = require('http');
 
 /**
  * Цены моделей за 1 миллион токенов (в долларах)
- * Обновлено с рабочими названиями моделей
+ * Обновлено с правильными названиями GPT-5 моделей
  */
 const MODEL_PRICING = {
   'gpt-4o-mini': {
@@ -21,7 +21,8 @@ const MODEL_PRICING = {
     useMaxCompletionTokens: false,
     supportsTemperature: true,
     available: true,
-    requiresBase64: false
+    requiresBase64: false,
+    supportsVision: true
   },
   'gpt-4o': {
     input: 2.50,
@@ -30,25 +31,58 @@ const MODEL_PRICING = {
     useMaxCompletionTokens: false,
     supportsTemperature: true,
     available: true,
-    requiresBase64: false
+    requiresBase64: false,
+    supportsVision: true
   },
-  'gpt-5-nano-2025-08-07': {
-    input: 0.05,
-    output: 0.40,
-    name: 'GPT-5 Nano',
+  'gpt-5.4': {
+    input: 5.00,
+    output: 15.00,
+    name: 'GPT-5.4',
     useMaxCompletionTokens: true,
     supportsTemperature: false,
     available: true,
-    requiresBase64: false
+    requiresBase64: false,
+    supportsVision: true
   },
-  'gpt-5-mini-2025-08-07': {
+  'gpt-5.4-mini': {
     input: 0.25,
-    output: 2.00,
+    output: 1.00,
+    name: 'GPT-5.4 Mini',
+    useMaxCompletionTokens: true,
+    supportsTemperature: false,
+    available: true,
+    requiresBase64: false,
+    supportsVision: true
+  },
+  'gpt-5.4-nano': {
+    input: 0.05,
+    output: 0.20,
+    name: 'GPT-5.4 Nano',
+    useMaxCompletionTokens: true,
+    supportsTemperature: false,
+    available: true,
+    requiresBase64: false,
+    supportsVision: true
+  },
+  'gpt-5-mini': {
+    input: 0.20,
+    output: 0.80,
     name: 'GPT-5 Mini',
     useMaxCompletionTokens: true,
     supportsTemperature: false,
     available: true,
-    requiresBase64: false
+    requiresBase64: false,
+    supportsVision: false
+  },
+  'gpt-5-nano': {
+    input: 0.03,
+    output: 0.12,
+    name: 'GPT-5 Nano',
+    useMaxCompletionTokens: true,
+    supportsTemperature: false,
+    available: true,
+    requiresBase64: false,
+    supportsVision: false
   },
   'gpt-4.1-nano-2025-04-14': {
     input: 0.10,
@@ -57,7 +91,8 @@ const MODEL_PRICING = {
     useMaxCompletionTokens: false,
     supportsTemperature: true,
     available: true,
-    requiresBase64: false
+    requiresBase64: false,
+    supportsVision: true
   },
   'gpt-4.1-mini-2025-04-14': {
     input: 0.40,
@@ -66,25 +101,8 @@ const MODEL_PRICING = {
     useMaxCompletionTokens: false,
     supportsTemperature: true,
     available: true,
-    requiresBase64: false
-  },
-  'o4-mini-2025-04-16': {
-    input: 1.10,
-    output: 4.40,
-    name: 'O4 Mini',
-    useMaxCompletionTokens: true,
-    supportsTemperature: false,
-    available: true,
-    requiresBase64: false
-  },
-  'o3-mini-2025-01-31': {
-    input: 1.00,
-    output: 4.00,
-    name: 'O3 Mini',
-    useMaxCompletionTokens: true,
-    supportsTemperature: false,
-    available: true,
-    requiresBase64: true
+    requiresBase64: false,
+    supportsVision: true
   }
 };
 
@@ -144,7 +162,8 @@ class ModelTester {
       name: info.name,
       inputPrice: info.input,
       outputPrice: info.output,
-      available: info.available
+      available: info.available,
+      supportsVision: info.supportsVision
     }));
   }
 
@@ -185,13 +204,8 @@ class ModelTester {
         throw new Error(`Модель ${modelId} не найдена`);
       }
 
-      // Разные промпты для разных типов моделей
-      if (pricing.useMaxCompletionTokens) {
-        // Для новых моделей (GPT-5, O3, O4) - более простой промпт
-        prompt = `Analyze food: ${foodName}, weight: ${weight}g. Return JSON: {"name":"${foodName}","weight":${weight},"protein":0,"fat":0,"carbs":0}`;
-      } else {
-        // Для старых моделей - детальный промпт
-        prompt = `Analyze this food item and provide nutritional information.
+      // Используем стандартный промпт для всех моделей
+      prompt = `Analyze this food item and provide nutritional information.
 Food: ${foodName}
 Weight: ${weight}g
 
@@ -204,7 +218,6 @@ Rules:
 - protein, fat, carbs: in grams for this portion
 - Use typical nutritional values for this food
 - Be realistic and accurate`;
-      }
 
       // Подготавливаем параметры запроса
       const requestParams = {
@@ -214,14 +227,15 @@ Rules:
             role: 'user',
             content: prompt
           }
-        ],
-        response_format: { type: "json_object" }
+        ]
       };
 
-      // Добавляем правильный параметр для ограничения токенов
+      // Добавляем response_format и токены
       if (pricing.useMaxCompletionTokens) {
+        requestParams.response_format = { type: "json_object" };
         requestParams.max_completion_tokens = 150;
       } else {
+        requestParams.response_format = { type: "json_object" };
         requestParams.max_tokens = 150;
       }
 
@@ -350,30 +364,23 @@ Rules:
         throw new Error(`Модель ${modelId} не найдена`);
       }
 
-      // Разные промпты для разных типов моделей
-      if (pricing.useMaxCompletionTokens) {
-        // Для новых моделей (GPT-5, O3, O4) - более простой промпт
-        prompt = weight
-          ? `Analyze this food photo. Weight: ${weight}g. Return JSON: {"name":"dish name in Russian","weight":${weight},"protein":0,"fat":0,"carbs":0}`
-          : `Analyze this food photo. Estimate weight in grams. Return JSON: {"name":"dish name in Russian","weight":0,"protein":0,"fat":0,"carbs":0}`;
-      } else {
-        // Для старых моделей - оригинальный промпт
-        prompt = weight
-          ? `Food photo analysis. Weight: ${weight}g. Dish name in Russian. JSON only: {"name":"","weight":${weight},"protein":0,"fat":0,"carbs":0}`
-          : `Food photo analysis. Estimate portion weight in grams. Dish name in Russian. JSON only: {"name":"","weight":0,"protein":0,"fat":0,"carbs":0}`;
+      // Проверяем поддержку Vision API
+      if (!pricing.supportsVision) {
+        return {
+          modelId,
+          modelName: pricing.name,
+          error: 'Модель не поддерживает анализ изображений',
+          duration: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+          prompt: 'Vision API не поддерживается',
+          rawResponse: 'Model does not support vision'
+        };
       }
 
-      // Подготавливаем URL изображения
-      let imageUrl = photoUrl;
-      if (pricing.requiresBase64) {
-        try {
-          imageUrl = await this.downloadImageAsBase64(photoUrl);
-          logger.info('Converted image to base64 for model', { modelId });
-        } catch (error) {
-          logger.error('Failed to convert image to base64', { error: error.message });
-          throw new Error(`Не удалось конвертировать изображение: ${error.message}`);
-        }
-      }
+      // Используем стандартный промпт для всех моделей
+      prompt = weight
+        ? `Food photo analysis. Weight: ${weight}g. Dish name in Russian. JSON only: {"name":"","weight":${weight},"protein":0,"fat":0,"carbs":0}`
+        : `Food photo analysis. Estimate portion weight in grams. Dish name in Russian. JSON only: {"name":"","weight":0,"protein":0,"fat":0,"carbs":0}`;
 
       // Подготавливаем параметры запроса
       const requestParams = {
@@ -386,20 +393,22 @@ Rules:
               { 
                 type: 'image_url', 
                 image_url: { 
-                  url: imageUrl,
+                  url: photoUrl,
                   detail: 'low'
                 } 
               }
             ]
           }
-        ],
-        response_format: { type: "json_object" }
+        ]
       };
 
-      // Добавляем правильный параметр для ограничения токенов
+      // Добавляем response_format только для моделей, которые его поддерживают
       if (pricing.useMaxCompletionTokens) {
+        // Новые модели GPT-5 могут требовать другой подход
+        requestParams.response_format = { type: "json_object" };
         requestParams.max_completion_tokens = 150;
       } else {
+        requestParams.response_format = { type: "json_object" };
         requestParams.max_tokens = 150;
       }
 

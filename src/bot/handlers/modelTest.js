@@ -163,6 +163,29 @@ async function clearResults(ctx) {
 }
 
 /**
+ * Создать кнопки выбора моделей
+ */
+function createModelButtons(models, selectedModels) {
+  const buttons = models.map(model => {
+    const isSelected = selectedModels.includes(model.id);
+    const icon = isSelected ? '✅' : '⬜️';
+    const statusIcon = model.available ? '' : '⚠️ ';
+    const visionIcon = model.supportsVision ? '📸' : '📝';
+    return [Markup.button.callback(
+      `${icon} ${statusIcon}${visionIcon} ${model.name} ($${model.inputPrice}/$${model.outputPrice})`,
+      `test_model_${model.id}`
+    )];
+  });
+
+  buttons.push([
+    Markup.button.callback('▶️ Запустить тесты', 'test_run'),
+    Markup.button.callback('❌ Отмена', 'test_cancel')
+  ]);
+
+  return buttons;
+}
+
+/**
  * Показать выбор моделей
  */
 async function showModelSelection(ctx, userId) {
@@ -184,22 +207,10 @@ async function showModelSelection(ctx, userId) {
   }
 
   message += `Выбрано моделей: ${state.selectedModels.length}\n\n`;
-  message += `Выберите модели для тестирования:`;
+  message += `Выберите модели для тестирования:\n`;
+  message += `📸 = поддерживает фото, 📝 = только текст`;
 
-  const buttons = models.map(model => {
-    const isSelected = state.selectedModels.includes(model.id);
-    const icon = isSelected ? '✅' : '⬜️';
-    const statusIcon = model.available ? '' : '⚠️ ';
-    return [Markup.button.callback(
-      `${icon} ${statusIcon}${model.name} ($${model.inputPrice}/$${model.outputPrice})`,
-      `test_model_${model.id}`
-    )];
-  });
-
-  buttons.push([
-    Markup.button.callback('▶️ Запустить тесты', 'test_run'),
-    Markup.button.callback('❌ Отмена', 'test_cancel')
-  ]);
+  const buttons = createModelButtons(models, state.selectedModels);
 
   await ctx.reply(message, {
     parse_mode: 'HTML',
@@ -246,22 +257,10 @@ async function toggleModel(ctx, callbackData) {
   }
 
   message += `Выбрано моделей: ${state.selectedModels.length}\n\n`;
-  message += `Выберите модели для тестирования:`;
+  message += `Выберите модели для тестирования:\n`;
+  message += `📸 = поддерживает фото, 📝 = только текст`;
 
-  const buttons = models.map(model => {
-    const isSelected = state.selectedModels.includes(model.id);
-    const icon = isSelected ? '✅' : '⬜️';
-    const statusIcon = model.available ? '' : '⚠️ ';
-    return [Markup.button.callback(
-      `${icon} ${statusIcon}${model.name} ($${model.inputPrice}/$${model.outputPrice})`,
-      `test_model_${model.id}`
-    )];
-  });
-
-  buttons.push([
-    Markup.button.callback('▶️ Запустить тесты', 'test_run'),
-    Markup.button.callback('❌ Отмена', 'test_cancel')
-  ]);
+  const buttons = createModelButtons(models, state.selectedModels);
 
   await ctx.editMessageText(message, {
     parse_mode: 'HTML',
