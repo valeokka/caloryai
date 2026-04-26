@@ -55,6 +55,13 @@ const {
   isFoodText,
   handleTextFood
 } = require('./handlers/textFood');
+const {
+  testCommand,
+  testCallbackHandler,
+  handleTestInput,
+  handleTestPhoto,
+  isTestMessage
+} = require('./handlers/modelTest');
 
 // Константы
 const { MESSAGES } = require('../config/constants');
@@ -117,9 +124,18 @@ function initializeBot() {
   bot.command('buy', buyHandler);
   bot.command('profile', profileHandler);
   bot.command('diary', showTodayDiary);
+  bot.command('test', testCommand);
 
   // Регистрируем обработчик фотографий
-  bot.on('photo', photoHandler);
+  bot.on('photo', async (ctx) => {
+    // Сначала проверяем, это фото для тестирования
+    if (isTestMessage(ctx)) {
+      await handleTestPhoto(ctx);
+    } else {
+      // Обычная обработка фото
+      await photoHandler(ctx);
+    }
+  });
 
   // Регистрируем обработчики callback_query
   bot.on('callback_query', async (ctx) => {
@@ -172,6 +188,9 @@ function initializeBot() {
       } else if (callbackData.startsWith('diary_')) {
         // Обработка дневника
         await diaryCallbackHandler(ctx);
+      } else if (callbackData.startsWith('test_') || callbackData === 'test_back') {
+        // Обработка тестирования моделей
+        await testCallbackHandler(ctx);
       } else if (callbackData.startsWith('buy_')) {
         // legacy кнопки — просто закрываем без сообщения
         await ctx.answerCbQuery();
@@ -203,8 +222,11 @@ function initializeBot() {
   // Обработчик текстовых сообщений (для корректировки, профиля, целей и добавления еды)
   bot.on('text', async (ctx) => {
     try {
-      // Проверяем, является ли это сообщением целей
-      if (isGoalMessage(ctx)) {
+      // Проверяем, является ли это сообщением тестирования
+      if (isTestMessage(ctx)) {
+        await handleTestInput(ctx);
+      } else if (isGoalMessage(ctx)) {
+        // Проверяем, является ли это сообщением целей
         await handleAdvancedInput(ctx);
       } else if (isProfileMessage(ctx)) {
         // Проверяем, является ли это сообщением профиля
@@ -229,7 +251,8 @@ function initializeBot() {
           '/status - проверить статус и лимиты\n' +
           '/buy - купить дополнительные запросы\n' +
           '/profile - управление профилем\n' +
-          '/diary - дневник питания'
+          '/diary - дневник питания\n' +
+          '/test - тестирование моделей'
         );
       }
     } catch (error) {
