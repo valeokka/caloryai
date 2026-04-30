@@ -9,6 +9,9 @@ const logger = require('../../utils/logger');
 // Хранилище состояний тестирования
 const testStates = new Map();
 
+// Хранилище последних выбранных моделей для каждого пользователя
+const lastSelectedModels = new Map();
+
 /**
  * Команда /test - начать тестирование моделей
  * @param {Object} ctx - Контекст Telegraf
@@ -129,11 +132,15 @@ async function startTextTest(ctx) {
   const userId = ctx.from.id;
   const existingState = testStates.get(userId) || {};
 
+  // Получаем последние выбранные модели или все доступные модели по умолчанию
+  const availableModels = modelTester.getAvailableModels('text');
+  const defaultModels = lastSelectedModels.get(userId) || availableModels.map(m => m.id);
+
   testStates.set(userId, {
     ...existingState,
     mode: 'text',
     step: 'waiting_food_name',
-    selectedModels: []
+    selectedModels: defaultModels
   });
 
   await ctx.editMessageText(
@@ -153,11 +160,20 @@ async function startPhotoTest(ctx) {
   const userId = ctx.from.id;
   const existingState = testStates.get(userId) || {};
 
+  // Получаем последние выбранные модели или все доступные модели с Vision по умолчанию
+  const availableModels = modelTester.getAvailableModels('photo');
+  const defaultModels = lastSelectedModels.get(userId) 
+    ? lastSelectedModels.get(userId).filter(modelId => {
+        // Фильтруем только модели с поддержкой Vision
+        return availableModels.some(m => m.id === modelId);
+      })
+    : availableModels.map(m => m.id);
+
   testStates.set(userId, {
     ...existingState,
     mode: 'photo',
     step: 'waiting_photo',
-    selectedModels: []
+    selectedModels: defaultModels
   });
 
   await ctx.editMessageText(
@@ -208,9 +224,8 @@ function createModelButtons(models, selectedModels) {
     const isSelected = selectedModels.includes(model.id);
     const icon = isSelected ? '✅' : '⬜️';
     const statusIcon = model.available ? '' : '⚠️ ';
-    const visionIcon = model.supportsVision ? '📸' : '📝';
     return [Markup.button.callback(
-      `${icon} ${statusIcon}${visionIcon} ${model.name} ($${model.inputPrice}/$${model.outputPrice})`,
+      `${icon} ${statusIcon}${model.name} ($${model.inputPrice}/$${model.outputPrice})`,
       `test_model_${model.id}`
     )];
   });
@@ -228,7 +243,7 @@ function createModelButtons(models, selectedModels) {
  */
 async function showModelSelection(ctx, userId) {
   const state = testStates.get(userId);
-  const models = modelTester.getAvailableModels();
+  const models = modelTester.getAvailableModels(state.mode);
 
   let message = `🤖 <b>Выбор моделей</b>\n\n`;
   message += `Режим: ${state.mode === 'text' ? '📝 Текст' : '📸 Фото'}\n`;
@@ -245,8 +260,10 @@ async function showModelSelection(ctx, userId) {
   }
 
   message += `Выбрано моделей: ${state.selectedModels.length}\n\n`;
-  message += `Выберите модели для тестирования:\n`;
-  message += `📸 = поддерживает фото, 📝 = только текст`;
+  message += `Выберите модели для тестирования:`;
+  if (state.mode === 'photo') {
+    message += `\n(Показаны только модели с поддержкой фото)`;
+  }
 
   const buttons = createModelButtons(models, state.selectedModels);
 
@@ -278,7 +295,7 @@ async function toggleModel(ctx, callbackData) {
   }
 
   // Обновляем сообщение
-  const models = modelTester.getAvailableModels();
+  const models = modelTester.getAvailableModels(state.mode);
   
   let message = `🤖 <b>Выбор моделей</b>\n\n`;
   message += `Режим: ${state.mode === 'text' ? '📝 Текст' : '📸 Фото'}\n`;
@@ -295,8 +312,10 @@ async function toggleModel(ctx, callbackData) {
   }
 
   message += `Выбрано моделей: ${state.selectedModels.length}\n\n`;
-  message += `Выберите модели для тестирования:\n`;
-  message += `📸 = поддерживает фото, 📝 = только текст`;
+  message += `Выберите модели для тестирования:`;
+  if (state.mode === 'photo') {
+    message += `\n(Показаны только модели с поддержкой фото)`;
+  }
 
   const buttons = createModelButtons(models, state.selectedModels);
 
@@ -323,11 +342,17 @@ async function runTests(ctx) {
     return;
   }
 
+  // Сохраняем выбранные модели для следующего раза
+  lastSelectedModels.set(userId, [...state.selectedModels]);
+
   await ctx.editMessageText(
     `⏳ Запускаю тестирование ${state.selectedModels.length} моделей...\n\n` +
     `Это может занять некоторое время.`,
     { parse_mode: 'HTML' }
   );
+
+  // Очищаем предыдущие результаты
+  modelTester.clearResults();
 
   // Запускаем тесты
   for (const modelId of state.selectedModels) {
@@ -338,13 +363,9 @@ async function runTests(ctx) {
     } else {
       result = await modelTester.testModelByPhoto(modelId, state.photoUrl, state.weight || null, state.promptType || 'simple');
     }
-
-    // Отправляем результат каждой модели отдельным сообщением
-    const resultMessage = modelTester.formatResult(result);
-    await ctx.reply(resultMessage, { parse_mode: 'HTML' });
   }
 
-  // Отправляем итоговую статистику
+  // Отправляем сводную таблицу результатов
   const summaryMessage = modelTester.formatAllResults();
   await ctx.reply(summaryMessage, { parse_mode: 'HTML' });
 

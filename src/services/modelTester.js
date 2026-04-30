@@ -101,7 +101,8 @@ const MODEL_PRICING = {
     supportsTemperature: true,
     available: true,
     requiresBase64: false,
-    supportsVision: true
+    supportsVision: true,
+    order: 1
   },
   'gpt-4o': {
     input: 2.50,
@@ -111,7 +112,8 @@ const MODEL_PRICING = {
     supportsTemperature: true,
     available: true,
     requiresBase64: false,
-    supportsVision: true
+    supportsVision: true,
+    order: 2
   },
   'gpt-5.4': {
     input: 5.00,
@@ -121,7 +123,8 @@ const MODEL_PRICING = {
     supportsTemperature: false,
     available: true,
     requiresBase64: false,
-    supportsVision: true
+    supportsVision: true,
+    order: 3
   },
   'gpt-5.4-mini': {
     input: 0.25,
@@ -131,7 +134,8 @@ const MODEL_PRICING = {
     supportsTemperature: false,
     available: true,
     requiresBase64: false,
-    supportsVision: true
+    supportsVision: true,
+    order: 4
   },
   'gpt-5.4-nano': {
     input: 0.05,
@@ -141,27 +145,8 @@ const MODEL_PRICING = {
     supportsTemperature: false,
     available: true,
     requiresBase64: false,
-    supportsVision: true
-  },
-  'gpt-5-mini': {
-    input: 0.20,
-    output: 0.80,
-    name: 'GPT-5 Mini',
-    useMaxCompletionTokens: true,
-    supportsTemperature: false,
-    available: true,
-    requiresBase64: false,
-    supportsVision: false
-  },
-  'gpt-5-nano': {
-    input: 0.03,
-    output: 0.12,
-    name: 'GPT-5 Nano',
-    useMaxCompletionTokens: true,
-    supportsTemperature: false,
-    available: true,
-    requiresBase64: false,
-    supportsVision: false
+    supportsVision: true,
+    order: 5
   },
   'gpt-4.1-nano-2025-04-14': {
     input: 0.10,
@@ -171,7 +156,8 @@ const MODEL_PRICING = {
     supportsTemperature: true,
     available: true,
     requiresBase64: false,
-    supportsVision: true
+    supportsVision: true,
+    order: 6
   },
   'gpt-4.1-mini-2025-04-14': {
     input: 0.40,
@@ -181,7 +167,30 @@ const MODEL_PRICING = {
     supportsTemperature: true,
     available: true,
     requiresBase64: false,
-    supportsVision: true
+    supportsVision: true,
+    order: 7
+  },
+  'gpt-5-mini': {
+    input: 0.20,
+    output: 0.80,
+    name: 'GPT-5 Mini',
+    useMaxCompletionTokens: true,
+    supportsTemperature: false,
+    available: true,
+    requiresBase64: false,
+    supportsVision: false,
+    order: 8
+  },
+  'gpt-5-nano': {
+    input: 0.03,
+    output: 0.12,
+    name: 'GPT-5 Nano',
+    useMaxCompletionTokens: true,
+    supportsTemperature: false,
+    available: true,
+    requiresBase64: false,
+    supportsVision: false,
+    order: 9
   }
 };
 
@@ -261,17 +270,26 @@ class ModelTester {
 
   /**
    * Получить список доступных моделей
+   * @param {string} mode - Режим тестирования ('text' или 'photo')
    * @returns {Array} Массив объектов с информацией о моделях
    */
-  getAvailableModels() {
-    return Object.entries(MODEL_PRICING).map(([id, info]) => ({
-      id,
-      name: info.name,
-      inputPrice: info.input,
-      outputPrice: info.output,
-      available: info.available,
-      supportsVision: info.supportsVision
-    }));
+  getAvailableModels(mode = 'text') {
+    const models = Object.entries(MODEL_PRICING)
+      .map(([id, info]) => ({
+        id,
+        name: info.name,
+        inputPrice: info.input,
+        outputPrice: info.output,
+        available: info.available,
+        supportsVision: info.supportsVision,
+        order: info.order
+      }))
+      // Фильтруем модели для фото режима - только с поддержкой Vision
+      .filter(model => mode === 'text' || model.supportsVision)
+      // Сортируем по порядку
+      .sort((a, b) => a.order - b.order);
+    
+    return models;
   }
 
   /**
@@ -719,17 +737,36 @@ class ModelTester {
 
     message += `<b>Детали по моделям:</b>\n\n`;
 
+    // Сохраняем промпт из первого результата (он общий для всех)
+    let sharedPrompt = null;
+
     this.testResults.forEach((result, index) => {
+      if (!sharedPrompt && result.prompt) {
+        sharedPrompt = result.prompt;
+      }
+
       if (result.error) {
-        message += `${index + 1}. ❌ ${result.modelName}\n`;
-        message += `   Ошибка: ${result.error}\n\n`;
+        message += `${index + 1}. ❌ <b>${result.modelName}</b>\n`;
+        message += `   ⚠️ Ошибка: ${result.error}\n`;
+        message += `   ⏱ Время: ${result.duration}мс\n\n`;
       } else {
-        message += `${index + 1}. ✅ ${result.modelName}\n`;
-        message += `   ${result.dishName} (${result.weight}г)\n`;
-        message += `   КБЖУ: ${result.calories}/${result.protein}/${result.fat}/${result.carbs}\n`;
-        message += `   💰 $${result.cost.toFixed(10)} | 🪙 ${result.tokens.total} | ⏱ ${result.duration}мс\n\n`;
+        message += `${index + 1}. ✅ <b>${result.modelName}</b>\n`;
+        message += `   🍽 ${result.dishName} (${result.weight}г)\n`;
+        message += `   🔥 Калории: ${result.calories} ккал\n`;
+        message += `   🥩 Белки: ${result.protein}г | 🧈 Жиры: ${result.fat}г | 🍞 Углеводы: ${result.carbs}г\n`;
+        message += `   🪙 Токены: ${result.tokens.total} | ⏱ Время: ${result.duration}мс\n\n`;
+        
+        // Копируемые поля
+        message += `   📋 <code>${result.weight}\t${result.calories}\t${result.protein}\t${result.fat}\t${result.carbs}</code>\n`;
+        message += `   💰 <code>$${result.cost.toFixed(10)}</code>\n\n`;
       }
     });
+
+    // Добавляем общий промпт в конце
+    if (sharedPrompt) {
+      message += `\n📝 <b>Промпт запроса:</b>\n`;
+      message += `<code>${sharedPrompt}</code>`;
+    }
 
     return message;
   }
