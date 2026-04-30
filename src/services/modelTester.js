@@ -10,6 +10,85 @@ const https = require('https');
 const http = require('http');
 
 /**
+ * Доступные промпты для тестирования
+ */
+const AVAILABLE_PROMPTS = {
+  simple: {
+    name: 'Простой промпт',
+    photo: (weight) => weight
+      ? `Analyze this food photo. Weight is ${weight}g. Provide nutritional information in JSON format with fields: name (in Russian), weight, protein, fat, carbs (all nutrients in grams). Calculate real nutritional values.`
+      : `Analyze this food photo. Estimate portion weight and provide nutritional information in JSON format with fields: name (in Russian), weight, protein, fat, carbs (all nutrients in grams). Calculate real nutritional values.`,
+    text: (foodName, weight) => `Analyze food item: ${foodName}, weight: ${weight}g. Provide nutritional information in JSON format with fields: name (keep original Russian name), weight, protein, fat, carbs (all nutrients in grams for this portion). Calculate real nutritional values based on typical food composition.`
+  },
+  detailed: {
+    name: 'Детальный промпт',
+    photo: (weight) => weight
+      ? `You are a nutrition analysis AI.
+Your task:
+Given a food image with weight ${weight}g, estimate:
+- dish name (in Russian)
+- total weight: ${weight}g
+- calories (kcal)
+- protein (g)
+- fat (g)
+- carbohydrates (g)
+
+Rules:
+1. Always respond ONLY in valid JSON. No explanations.
+2. Values must be numeric (no strings like "about").
+3. If multiple items are present — aggregate into one total.
+4. Nutritional estimation:
+   - Use standard nutritional averages per 100g.
+   - Be internally consistent: kcal ≈ protein*4 + carbs*4 + fat*9
+5. If uncertain:
+   - Make the best realistic estimate (never return null).
+6. Ignore non-food objects.
+
+Output format:
+{"name": string, "weight": ${weight}, "calories": number, "protein": number, "fat": number, "carbs": number}`
+      : `You are a nutrition analysis AI.
+Your task:
+Given a food image, estimate:
+- dish name (in Russian)
+- total weight in grams
+- calories (kcal)
+- protein (g)
+- fat (g)
+- carbohydrates (g)
+
+Rules:
+1. Always respond ONLY in valid JSON. No explanations.
+2. Values must be numeric (no strings like "about").
+3. If multiple items are present — aggregate into one total.
+4. Weight estimation:
+   - Use visual cues (plate size, utensils, portions).
+   - Default plate diameter: 24 cm if unknown.
+5. Nutritional estimation:
+   - Use standard nutritional averages per 100g.
+   - Be internally consistent: kcal ≈ protein*4 + carbs*4 + fat*9
+6. If uncertain:
+   - Make the best realistic estimate (never return null).
+7. Ignore non-food objects.
+8. If packaging is visible — assume standard serving size.
+
+Output format:
+{"name": string, "weight": number, "calories": number, "protein": number, "fat": number, "carbs": number}`,
+    text: (foodName, weight) => `You are a nutrition analysis AI.
+Analyze food item: ${foodName}, weight: ${weight}g.
+
+Provide nutritional information following these rules:
+1. Always respond ONLY in valid JSON. No explanations.
+2. Values must be numeric.
+3. Use standard nutritional averages per 100g.
+4. Be internally consistent: kcal ≈ protein*4 + carbs*4 + fat*9
+5. Keep original Russian name.
+
+Output format:
+{"name": "${foodName}", "weight": ${weight}, "calories": number, "protein": number, "fat": number, "carbs": number}`
+  }
+};
+
+/**
  * Цены моделей за 1 миллион токенов (в долларах)
  * Обновлено с правильными названиями GPT-5 моделей
  */
@@ -116,6 +195,34 @@ class ModelTester {
   }
 
   /**
+   * Нормализовать данные питания к единому формату
+   * @param {Object} data - Сырые данные от модели
+   * @returns {Object} Нормализованные данные
+   */
+  normalizeNutritionData(data) {
+    // Оба промпта используют одинаковый формат, но на всякий случай поддерживаем альтернативы
+    return {
+      name: data.name || data.dish || '',
+      weight: data.weight || data.weight_g || 0,
+      calories: data.calories || data.calories_kcal || 0,
+      protein: data.protein || data.protein_g || 0,
+      fat: data.fat || data.fat_g || 0,
+      carbs: data.carbs || data.carbs_g || 0
+    };
+  }
+
+  /**
+   * Получить доступные промпты
+   * @returns {Array} Массив объектов с информацией о промптах
+   */
+  getAvailablePrompts() {
+    return Object.entries(AVAILABLE_PROMPTS).map(([id, info]) => ({
+      id,
+      name: info.name
+    }));
+  }
+
+  /**
    * Скачать изображение и конвертировать в base64
    * @param {string} imageUrl - URL изображения
    * @returns {Promise<string>} Base64 data URL
@@ -190,22 +297,28 @@ class ModelTester {
    * @param {string} modelId - ID модели для тестирования
    * @param {string} foodName - Название еды
    * @param {number} weight - Вес порции в граммах
+   * @param {string} promptType - Тип промпта ('simple' или 'detailed')
    * @returns {Promise<Object>} Результат тестирования
    */
-  async testModelByText(modelId, foodName, weight) {
+  async testModelByText(modelId, foodName, weight, promptType = 'simple') {
     const startTime = Date.now();
     let prompt = 'N/A'; // Объявляем переменную в начале
     
     try {
-      logger.info('Testing model by text', { modelId, foodName, weight });
+      logger.info('Testing model by text', { modelId, foodName, weight, promptType });
 
       const pricing = MODEL_PRICING[modelId];
       if (!pricing) {
         throw new Error(`Модель ${modelId} не найдена`);
       }
 
-      // Используем улучшенный промпт без примеров с нулями для всех моделей
-      prompt = `Analyze food item: ${foodName}, weight: ${weight}g. Provide nutritional information in JSON format with fields: name (keep original Russian name), weight, protein, fat, carbs (all nutrients in grams for this portion). Calculate real nutritional values based on typical food composition.`;
+      const promptTemplate = AVAILABLE_PROMPTS[promptType];
+      if (!promptTemplate) {
+        throw new Error(`Промпт ${promptType} не найден`);
+      }
+
+      // Используем выбранный промпт
+      prompt = promptTemplate.text(foodName, weight);
 
       // Подготавливаем параметры запроса
       const requestParams = {
@@ -247,7 +360,7 @@ class ModelTester {
         duration: `${duration}ms`
       });
 
-      // Парсим JSON
+      // Парсим JSON с поддержкой разных форматов
       let data;
       try {
         // Пробуем найти JSON в markdown блоке
@@ -277,22 +390,25 @@ class ModelTester {
         };
       }
 
+      // Нормализуем данные к единому формату
+      const normalizedData = this.normalizeNutritionData(data);
+
       // Валидация
-      if (data.protein === undefined || data.fat === undefined || data.carbs === undefined) {
+      if (normalizedData.protein === undefined || normalizedData.fat === undefined || normalizedData.carbs === undefined) {
         throw new Error('Отсутствуют данные о питательности');
       }
 
       // Рассчитываем калории
-      const calories = calculateCalories(data.protein, data.fat, data.carbs);
+      const calories = normalizedData.calories || calculateCalories(normalizedData.protein, normalizedData.fat, normalizedData.carbs);
 
       const result = {
         modelId,
         modelName: pricing.name,
-        dishName: data.name || foodName,
+        dishName: normalizedData.name || foodName,
         calories: Math.round(calories),
-        protein: Math.round(data.protein),
-        fat: Math.round(data.fat),
-        carbs: Math.round(data.carbs),
+        protein: Math.round(normalizedData.protein),
+        fat: Math.round(normalizedData.fat),
+        carbs: Math.round(normalizedData.carbs),
         weight: weight,
         tokens: {
           input: usage.prompt_tokens,
@@ -303,7 +419,8 @@ class ModelTester {
         duration: duration,
         timestamp: new Date().toISOString(),
         prompt: prompt,
-        rawResponse: content
+        rawResponse: content,
+        promptType: promptType
       };
 
       // Сохраняем результат
@@ -338,14 +455,15 @@ class ModelTester {
    * @param {string} modelId - ID модели для тестирования
    * @param {string} photoUrl - URL фотографии
    * @param {number|null} weight - Вес порции в граммах (опционально)
+   * @param {string} promptType - Тип промпта ('simple' или 'detailed')
    * @returns {Promise<Object>} Результат тестирования
    */
-  async testModelByPhoto(modelId, photoUrl, weight = null) {
+  async testModelByPhoto(modelId, photoUrl, weight = null, promptType = 'simple') {
     const startTime = Date.now();
     let prompt = 'N/A'; // Объявляем переменную в начале
     
     try {
-      logger.info('Testing model by photo', { modelId, photoUrl, weight });
+      logger.info('Testing model by photo', { modelId, photoUrl, weight, promptType });
 
       const pricing = MODEL_PRICING[modelId];
       if (!pricing) {
@@ -365,10 +483,13 @@ class ModelTester {
         };
       }
 
-      // Используем улучшенный промпт без примеров с нулями для всех моделей
-      prompt = weight
-        ? `Analyze this food photo. Weight is ${weight}g. Provide nutritional information in JSON format with fields: name (in Russian), weight, protein, fat, carbs (all nutrients in grams). Calculate real nutritional values.`
-        : `Analyze this food photo. Estimate portion weight and provide nutritional information in JSON format with fields: name (in Russian), weight, protein, fat, carbs (all nutrients in grams). Calculate real nutritional values.`;
+      const promptTemplate = AVAILABLE_PROMPTS[promptType];
+      if (!promptTemplate) {
+        throw new Error(`Промпт ${promptType} не найден`);
+      }
+
+      // Используем выбранный промпт
+      prompt = promptTemplate.photo(weight);
 
       // Подготавливаем параметры запроса
       const requestParams = {
@@ -420,7 +541,7 @@ class ModelTester {
         duration: `${duration}ms`
       });
 
-      // Парсим JSON
+      // Парсим JSON с поддержкой разных форматов
       let data;
       try {
         data = JSON.parse(content);
@@ -439,27 +560,30 @@ class ModelTester {
         };
       }
 
+      // Нормализуем данные к единому формату
+      const normalizedData = this.normalizeNutritionData(data);
+
       // Валидация
-      if (!data.name || 
-          typeof data.weight !== 'number' ||
-          typeof data.protein !== 'number' ||
-          typeof data.fat !== 'number' ||
-          typeof data.carbs !== 'number') {
+      if (!normalizedData.name || 
+          typeof normalizedData.weight !== 'number' ||
+          typeof normalizedData.protein !== 'number' ||
+          typeof normalizedData.fat !== 'number' ||
+          typeof normalizedData.carbs !== 'number') {
         throw new Error('Неверный формат ответа');
       }
 
       // Рассчитываем калории
-      const calories = calculateCalories(data.protein, data.fat, data.carbs);
+      const calories = normalizedData.calories || calculateCalories(normalizedData.protein, normalizedData.fat, normalizedData.carbs);
 
       const result = {
         modelId,
         modelName: pricing.name,
-        dishName: data.name,
+        dishName: normalizedData.name,
         calories: Math.round(calories),
-        protein: Math.round(data.protein),
-        fat: Math.round(data.fat),
-        carbs: Math.round(data.carbs),
-        weight: data.weight,
+        protein: Math.round(normalizedData.protein),
+        fat: Math.round(normalizedData.fat),
+        carbs: Math.round(normalizedData.carbs),
+        weight: normalizedData.weight,
         tokens: {
           input: usage.prompt_tokens,
           output: usage.completion_tokens,
@@ -469,7 +593,8 @@ class ModelTester {
         duration: duration,
         timestamp: new Date().toISOString(),
         prompt: prompt,
-        rawResponse: content
+        rawResponse: content,
+        promptType: promptType
       };
 
       // Сохраняем результат

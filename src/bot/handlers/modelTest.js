@@ -20,14 +20,14 @@ async function testCommand(ctx) {
     logger.info('Test command received', { userId });
 
     const message = `🧪 <b>Тестирование моделей</b>\n\n` +
-                   `Выберите режим тестирования:\n\n` +
-                   `📝 <b>По тексту</b> - введите название блюда и вес\n` +
-                   `📸 <b>По фото</b> - отправьте фото еды\n\n` +
-                   `После выбора режима вы сможете выбрать модели для тестирования.`;
+                   `Сначала выберите тип промпта:\n\n` +
+                   `📝 <b>Простой</b> - краткий промпт\n` +
+                   `🔬 <b>Детальный</b> - подробный промпт с правилами\n\n` +
+                   `После выбора промпта вы сможете выбрать режим тестирования.`;
 
     const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('📝 Тест по тексту', 'test_mode_text')],
-      [Markup.button.callback('📸 Тест по фото', 'test_mode_photo')],
+      [Markup.button.callback('📝 Простой промпт', 'test_prompt_simple')],
+      [Markup.button.callback('🔬 Детальный промпт', 'test_prompt_detailed')],
       [Markup.button.callback('📊 Показать результаты', 'test_show_results')],
       [Markup.button.callback('🗑 Очистить результаты', 'test_clear_results')]
     ]);
@@ -58,7 +58,9 @@ async function testCallbackHandler(ctx) {
 
     logger.info('Test callback received', { userId, callbackData });
 
-    if (callbackData === 'test_mode_text') {
+    if (callbackData.startsWith('test_prompt_')) {
+      await selectPrompt(ctx, callbackData);
+    } else if (callbackData === 'test_mode_text') {
       await startTextTest(ctx);
     } else if (callbackData === 'test_mode_photo') {
       await startPhotoTest(ctx);
@@ -91,12 +93,44 @@ async function testCallbackHandler(ctx) {
 }
 
 /**
+ * Выбрать тип промпта
+ */
+async function selectPrompt(ctx, callbackData) {
+  const userId = ctx.from.id;
+  const promptType = callbackData.replace('test_prompt_', '');
+
+  const message = `🧪 <b>Тестирование моделей</b>\n\n` +
+                 `Выбран промпт: <b>${promptType === 'simple' ? 'Простой' : 'Детальный'}</b>\n\n` +
+                 `Теперь выберите режим тестирования:\n\n` +
+                 `📝 <b>По тексту</b> - введите название блюда и вес\n` +
+                 `📸 <b>По фото</b> - отправьте фото еды`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('📝 Тест по тексту', 'test_mode_text')],
+    [Markup.button.callback('📸 Тест по фото', 'test_mode_photo')],
+    [Markup.button.callback('🔙 Назад', 'test_back')]
+  ]);
+
+  // Сохраняем выбранный промпт
+  testStates.set(userId, { promptType });
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'HTML',
+    reply_markup: keyboard.reply_markup
+  });
+
+  logger.info('Prompt selected', { userId, promptType });
+}
+
+/**
  * Начать тестирование по тексту
  */
 async function startTextTest(ctx) {
   const userId = ctx.from.id;
+  const existingState = testStates.get(userId) || {};
 
   testStates.set(userId, {
+    ...existingState,
     mode: 'text',
     step: 'waiting_food_name',
     selectedModels: []
@@ -104,6 +138,7 @@ async function startTextTest(ctx) {
 
   await ctx.editMessageText(
     `📝 <b>Тестирование по тексту</b>\n\n` +
+    `Промпт: <b>${existingState.promptType === 'detailed' ? 'Детальный' : 'Простой'}</b>\n\n` +
     `Введите название блюда:`,
     { parse_mode: 'HTML' }
   );
@@ -116,8 +151,10 @@ async function startTextTest(ctx) {
  */
 async function startPhotoTest(ctx) {
   const userId = ctx.from.id;
+  const existingState = testStates.get(userId) || {};
 
   testStates.set(userId, {
+    ...existingState,
     mode: 'photo',
     step: 'waiting_photo',
     selectedModels: []
@@ -125,6 +162,7 @@ async function startPhotoTest(ctx) {
 
   await ctx.editMessageText(
     `📸 <b>Тестирование по фото</b>\n\n` +
+    `Промпт: <b>${existingState.promptType === 'detailed' ? 'Детальный' : 'Простой'}</b>\n\n` +
     `Отправьте фото еды:`,
     { parse_mode: 'HTML' }
   );
@@ -296,9 +334,9 @@ async function runTests(ctx) {
     let result;
     
     if (state.mode === 'text') {
-      result = await modelTester.testModelByText(modelId, state.foodName, state.weight);
+      result = await modelTester.testModelByText(modelId, state.foodName, state.weight, state.promptType || 'simple');
     } else {
-      result = await modelTester.testModelByPhoto(modelId, state.photoUrl, state.weight || null);
+      result = await modelTester.testModelByPhoto(modelId, state.photoUrl, state.weight || null, state.promptType || 'simple');
     }
 
     // Отправляем результат каждой модели отдельным сообщением
