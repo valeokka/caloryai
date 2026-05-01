@@ -209,6 +209,33 @@ class ModelTester {
    * @returns {Object} Нормализованные данные
    */
   normalizeNutritionData(data) {
+    // Проверяем, если модель вернула массив блюд (items)
+    if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+      logger.info('Detected items array, aggregating', { itemsCount: data.items.length });
+      
+      // Агрегируем все блюда в одно
+      const aggregated = {
+        name: data.items.map(item => item.name || item.dish || '').filter(n => n).join(', '),
+        weight: 0,
+        calories: 0,
+        protein: 0,
+        fat: 0,
+        carbs: 0
+      };
+
+      // Суммируем все значения
+      data.items.forEach(item => {
+        aggregated.weight += item.weight || item.weight_g || 0;
+        aggregated.calories += item.calories || item.calories_kcal || 0;
+        aggregated.protein += item.protein || item.protein_g || 0;
+        aggregated.fat += item.fat || item.fat_g || 0;
+        aggregated.carbs += item.carbs || item.carbs_g || 0;
+      });
+
+      logger.info('Aggregated items', aggregated);
+      return aggregated;
+    }
+
     // Оба промпта используют одинаковый формат, но на всякий случай поддерживаем альтернативы
     return {
       name: data.name || data.dish || '',
