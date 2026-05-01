@@ -137,10 +137,10 @@ const MODEL_PRICING = {
     supportsVision: true,
     order: 4
   },
-  'gpt-5.1-2025-11-13': {
-    input: 1.25,
-    output: 10.00,
-    name: 'GPT-5.1',
+  'gpt-4.1-2025-04-14': {
+    input: 2.00,
+    output: 8.00,
+    name: 'GPT-4.1',
     useMaxCompletionTokens: true,
     supportsTemperature: false,
     available: true,
