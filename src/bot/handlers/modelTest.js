@@ -71,6 +71,8 @@ async function testCallbackHandler(ctx) {
       await startTextTest(ctx);
     } else if (callbackData === 'test_mode_photo') {
       await startPhotoTest(ctx);
+    } else if (callbackData === 'test_mode_analyze') {
+      await startAnalyzeTest(ctx);
     } else if (callbackData === 'test_show_results') {
       await showResults(ctx);
     } else if (callbackData === 'test_clear_results') {
@@ -114,11 +116,13 @@ async function selectPrompt(ctx, callbackData) {
                  `Выбран промпт: <b>${promptType === 'simple' ? 'Простой' : 'Детальный'}</b>\n\n` +
                  `Теперь выберите режим тестирования:\n\n` +
                  `📝 <b>По тексту</b> - введите название блюда и вес\n` +
-                 `📸 <b>По фото</b> - отправьте фото еды`;
+                 `📸 <b>По фото</b> - отправьте фото еды\n` +
+                 `🔍 <b>Анализ фото</b> - только определение блюда и веса`;
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('📝 Тест по тексту', 'test_mode_text')],
     [Markup.button.callback('📸 Тест по фото', 'test_mode_photo')],
+    [Markup.button.callback('🔍 Анализ фото', 'test_mode_analyze')],
     [Markup.button.callback('🔙 Назад', 'test_back')]
   ]);
 
@@ -192,6 +196,39 @@ async function startPhotoTest(ctx) {
   );
 
   logger.info('Started photo test', { userId });
+}
+
+/**
+ * Начать режим анализа фото
+ */
+async function startAnalyzeTest(ctx) {
+  const userId = ctx.from.id;
+  const existingState = testStates.get(userId) || {};
+
+  // Получаем последние выбранные модели или все доступные модели с Vision по умолчанию
+  const availableModels = modelTester.getAvailableModels('photo');
+  const defaultModels = lastSelectedModels.get(userId) 
+    ? lastSelectedModels.get(userId).filter(modelId => {
+        // Фильтруем только модели с поддержкой Vision
+        return availableModels.some(m => m.id === modelId);
+      })
+    : availableModels.map(m => m.id);
+
+  testStates.set(userId, {
+    ...existingState,
+    mode: 'analyze',
+    step: 'waiting_photo',
+    selectedModels: defaultModels
+  });
+
+  await ctx.editMessageText(
+    `🔍 <b>Анализ фото</b>\n\n` +
+    `Режим: только определение блюда и веса (без КБЖУ)\n\n` +
+    `Отправьте фото еды:`,
+    { parse_mode: 'HTML' }
+  );
+
+  logger.info('Started analyze test', { userId });
 }
 
 /**
@@ -294,10 +331,17 @@ function createModelButtons(models, selectedModels) {
  */
 async function showModelSelection(ctx, userId) {
   const state = testStates.get(userId);
-  const models = modelTester.getAvailableModels(state.mode);
+  const models = modelTester.getAvailableModels(state.mode === 'text' ? 'text' : 'photo');
+
+  let modeText = '📝 Текст';
+  if (state.mode === 'photo') {
+    modeText = '📸 Фото';
+  } else if (state.mode === 'analyze') {
+    modeText = '🔍 Анализ';
+  }
 
   let message = `🤖 <b>Выбор моделей</b>\n\n`;
-  message += `Режим: ${state.mode === 'text' ? '📝 Текст' : '📸 Фото'}\n`;
+  message += `Режим: ${modeText}\n`;
   
   if (state.mode === 'text') {
     message += `Блюдо: ${state.foodName}\n`;
@@ -312,7 +356,7 @@ async function showModelSelection(ctx, userId) {
 
   message += `Выбрано моделей: ${state.selectedModels.length}\n\n`;
   message += `Выберите модели для тестирования:`;
-  if (state.mode === 'photo') {
+  if (state.mode === 'photo' || state.mode === 'analyze') {
     message += `\n(Показаны только модели с поддержкой фото)`;
   }
 
@@ -346,10 +390,17 @@ async function toggleModel(ctx, callbackData) {
   }
 
   // Обновляем сообщение
-  const models = modelTester.getAvailableModels(state.mode);
+  const models = modelTester.getAvailableModels(state.mode === 'text' ? 'text' : 'photo');
   
+  let modeText = '📝 Текст';
+  if (state.mode === 'photo') {
+    modeText = '📸 Фото';
+  } else if (state.mode === 'analyze') {
+    modeText = '🔍 Анализ';
+  }
+
   let message = `🤖 <b>Выбор моделей</b>\n\n`;
-  message += `Режим: ${state.mode === 'text' ? '📝 Текст' : '📸 Фото'}\n`;
+  message += `Режим: ${modeText}\n`;
   
   if (state.mode === 'text') {
     message += `Блюдо: ${state.foodName}\n`;
@@ -364,7 +415,7 @@ async function toggleModel(ctx, callbackData) {
 
   message += `Выбрано моделей: ${state.selectedModels.length}\n\n`;
   message += `Выберите модели для тестирования:`;
-  if (state.mode === 'photo') {
+  if (state.mode === 'photo' || state.mode === 'analyze') {
     message += `\n(Показаны только модели с поддержкой фото)`;
   }
 
@@ -414,7 +465,11 @@ async function runTests(ctx) {
     
     if (state.mode === 'text') {
       result = await modelTester.testModelByText(modelId, state.foodName, state.weight, state.promptType || 'simple');
+    } else if (state.mode === 'analyze') {
+      // Режим анализа - только название и вес
+      result = await modelTester.testModelByAnalyze(modelId, state.photoUrl, state.weight || null);
     } else {
+      // Обычный режим фото с КБЖУ
       result = await modelTester.testModelByPhoto(modelId, state.photoUrl, state.weight || null, state.promptType || 'simple');
     }
 
@@ -524,7 +579,7 @@ async function handleTestPhoto(ctx) {
   const userId = ctx.from.id;
   const state = testStates.get(userId);
 
-  if (!state || state.mode !== 'photo' || state.step !== 'waiting_photo') {
+  if (!state || (state.mode !== 'photo' && state.mode !== 'analyze') || state.step !== 'waiting_photo') {
     return; // Не наше фото
   }
 

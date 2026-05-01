@@ -666,6 +666,162 @@ class ModelTester {
   }
 
   /**
+   * Тестировать модель на анализе фото (только название и вес)
+   * @param {string} modelId - ID модели для тестирования
+   * @param {string} photoUrl - URL фотографии
+   * @param {number|null} weight - Вес порции в граммах (опционально)
+   * @returns {Promise<Object>} Результат тестирования
+   */
+  async testModelByAnalyze(modelId, photoUrl, weight = null) {
+    const startTime = Date.now();
+    let prompt = 'N/A';
+    
+    try {
+      logger.info('Testing model by analyze', { modelId, photoUrl, weight });
+
+      const pricing = MODEL_PRICING[modelId];
+      if (!pricing) {
+        throw new Error(`Модель ${modelId} не найдена`);
+      }
+
+      // Проверяем поддержку Vision API
+      if (!pricing.supportsVision) {
+        return {
+          modelId,
+          modelName: pricing.name,
+          error: 'Модель не поддерживает анализ изображений',
+          duration: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+          prompt: 'Vision API не поддерживается',
+          rawResponse: 'Model does not support vision'
+        };
+      }
+
+      // Промпт для режима анализа - только название и вес
+      if (weight) {
+        prompt = `Analyze this food photo. Weight is ${weight}g. Identify the dish name in Russian and confirm the weight. Return JSON with fields: name (in Russian), weight. No nutritional information needed.`;
+      } else {
+        prompt = `Analyze this food photo. Identify the dish name in Russian and estimate the total weight in grams. Return JSON with fields: name (in Russian), weight. No nutritional information needed.`;
+      }
+
+      // Подготавливаем параметры запроса
+      const requestParams = {
+        model: modelId,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { 
+                type: 'image_url', 
+                image_url: { 
+                  url: photoUrl,
+                  detail: 'low'
+                } 
+              }
+            ]
+          }
+        ]
+      };
+
+      // Добавляем response_format и токены
+      if (pricing.useMaxCompletionTokens) {
+        requestParams.response_format = { type: "json_object" };
+        requestParams.max_completion_tokens = 100;
+      } else {
+        requestParams.response_format = { type: "json_object" };
+        requestParams.max_tokens = 100;
+      }
+
+      // Добавляем temperature только для моделей, которые его поддерживают
+      if (pricing.supportsTemperature) {
+        requestParams.temperature = 0.2;
+      }
+
+      const response = await this.client.chat.completions.create(requestParams);
+
+      const content = response.choices[0].message.content.trim();
+      const usage = response.usage;
+      const cost = this.calculateCost(modelId, usage);
+      const duration = Date.now() - startTime;
+
+      logger.info('Model analyze response', { 
+        modelId,
+        content,
+        tokens: usage.total_tokens,
+        cost: `${cost.toFixed(10)}`,
+        duration: `${duration}ms`
+      });
+
+      // Парсим JSON
+      let data;
+      try {
+        data = JSON.parse(content);
+      } catch (parseError) {
+        logger.error('JSON parse error', { content, error: parseError.message });
+        
+        return {
+          modelId,
+          modelName: pricing.name,
+          error: `Ошибка парсинга JSON: ${parseError.message}`,
+          duration: duration,
+          timestamp: new Date().toISOString(),
+          prompt: prompt,
+          rawResponse: content || 'Empty response'
+        };
+      }
+
+      // Валидация
+      if (!data.name || typeof data.weight !== 'number') {
+        throw new Error('Неверный формат ответа');
+      }
+
+      const result = {
+        modelId,
+        modelName: pricing.name,
+        dishName: data.name,
+        weight: data.weight,
+        tokens: {
+          input: usage.prompt_tokens,
+          output: usage.completion_tokens,
+          total: usage.total_tokens
+        },
+        cost: cost,
+        duration: duration,
+        timestamp: new Date().toISOString(),
+        prompt: prompt,
+        rawResponse: content,
+        mode: 'analyze'
+      };
+
+      // Сохраняем результат
+      this.testResults.push(result);
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      logger.error('Error testing model with analyze', {
+        modelId,
+        photoUrl,
+        weight,
+        duration: `${duration}ms`,
+        error: error.message,
+        stack: error.stack
+      });
+
+      return {
+        modelId,
+        modelName: MODEL_PRICING[modelId]?.name || modelId,
+        error: error.message,
+        duration: duration,
+        timestamp: new Date().toISOString(),
+        prompt: prompt,
+        rawResponse: error.response?.data || 'Error occurred'
+      };
+    }
+  }
+
+  /**
    * Получить все результаты тестирования
    * @returns {Array} Массив результатов
    */
@@ -721,6 +877,20 @@ class ModelTester {
              `📤 <b>Ответ:</b>\n<code>${result.rawResponse}</code>`;
     }
 
+    // Режим анализа - только название и вес
+    if (result.mode === 'analyze') {
+      return `✅ <b>${result.modelName}</b>\n\n` +
+             `🍽 <b>${result.dishName}</b>\n` +
+             `⚖️ Вес: ${result.weight}г\n\n` +
+             `📊 <b>Статистика:</b>\n` +
+             `🪙 Токены: ${result.tokens.total} (↑${result.tokens.input} ↓${result.tokens.output})\n` +
+             `💰 Стоимость: ${result.cost.toFixed(10).replace('.', ',')}\n` +
+             `⏱ Время: ${result.duration}мс\n\n` +
+             `📝 <b>Промпт:</b>\n<code>${result.prompt}</code>\n\n` +
+             `📤 <b>Ответ модели:</b>\n<code>${result.rawResponse}</code>`;
+    }
+
+    // Обычный режим с КБЖУ
     return `✅ <b>${result.modelName}</b>\n\n` +
            `🍽 <b>${result.dishName}</b>\n` +
            `⚖️ Вес: ${result.weight}г\n\n` +
@@ -772,7 +942,17 @@ class ModelTester {
         message += `${index + 1}. ❌ <b>${result.modelName}</b>\n`;
         message += `   ⚠️ Ошибка: ${result.error}\n`;
         message += `   ⏱ Время: ${result.duration}мс\n\n`;
+      } else if (result.mode === 'analyze') {
+        // Режим анализа - только название и вес
+        message += `${index + 1}. ✅ <b>${result.modelName}</b>\n`;
+        message += `   🍽 ${result.dishName} (${result.weight}г)\n`;
+        message += `   🪙 Токены: ${result.tokens.total} | ⏱ Время: ${result.duration}мс\n\n`;
+        
+        // Копируемые поля для анализа
+        message += `   📋 <code>${result.weight}</code>\n`;
+        message += `   💰 <code>${result.cost.toFixed(10).replace('.', ',')}</code>\n\n`;
       } else {
+        // Обычный режим с КБЖУ
         message += `${index + 1}. ✅ <b>${result.modelName}</b>\n`;
         message += `   🍽 ${result.dishName} (${result.weight}г)\n`;
         message += `   🔥 Калории: ${result.calories} ккал\n`;
