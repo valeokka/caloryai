@@ -137,10 +137,10 @@ const MODEL_PRICING = {
     supportsVision: true,
     order: 4
   },
-  'gpt-5.4-nano': {
-    input: 0.05,
-    output: 0.20,
-    name: 'GPT-5.4 Nano',
+  'gpt-5-2025-08-07': {
+    input: 1.25,
+    output: 10.00,
+    name: 'GPT-5',
     useMaxCompletionTokens: true,
     supportsTemperature: false,
     available: true,
