@@ -701,7 +701,32 @@ class ModelTester {
       if (weight) {
         prompt = `Analyze this food photo. Weight is ${weight}g. Identify the dish name in Russian and confirm the weight. Return JSON with fields: name (in Russian), weight. No nutritional information needed.`;
       } else {
-        prompt = `Analyze this food photo. Identify the dish name in Russian and estimate the total weight in grams. Return JSON with fields: name (in Russian), weight. No nutritional information needed.`;
+        prompt = `You are a food recognition model.
+Task:
+1. Identify all distinct food items in the image.
+2. Provide each dish name in Russian.
+3. Estimate the weight of each dish in grams.
+
+Rules:
+- Respond ONLY in valid JSON.
+- Do not include any text outside JSON.
+- Use this exact schema:
+{
+  "items": [
+    {
+      "name": string, // dish name in Russian
+      "weight": number // weight in grams (integer)
+    }
+  ]
+}
+
+Guidelines:
+- List ALL visible dishes (not just the main one).
+- Combine identical items into one entry with total weight.
+- If unsure, provide the most probable name.
+- Weight must be in grams only.
+- Weight must be a realistic estimate (50–2000 g per item).
+- Do not include nutritional values or extra fields.`;
       }
 
       // Подготавливаем параметры запроса
@@ -771,16 +796,30 @@ class ModelTester {
         };
       }
 
-      // Валидация
-      if (!data.name || typeof data.weight !== 'number') {
+      // Валидация и обработка ответа
+      let dishName, totalWeight;
+      
+      // Проверяем формат с массивом items
+      if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+        // Формат с массивом блюд
+        dishName = data.items.map(item => item.name).join(', ');
+        totalWeight = data.items.reduce((sum, item) => sum + (item.weight || 0), 0);
+        
+        logger.info('Parsed items array', { itemsCount: data.items.length, dishName, totalWeight });
+      } else if (data.name && typeof data.weight === 'number') {
+        // Старый формат с одним блюдом
+        dishName = data.name;
+        totalWeight = data.weight;
+      } else {
         throw new Error('Неверный формат ответа');
       }
 
       const result = {
         modelId,
         modelName: pricing.name,
-        dishName: data.name,
-        weight: data.weight,
+        dishName: dishName,
+        weight: totalWeight,
+        items: data.items || null, // Сохраняем массив items если есть
         tokens: {
           input: usage.prompt_tokens,
           output: usage.completion_tokens,

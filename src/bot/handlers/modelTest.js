@@ -73,6 +73,8 @@ async function testCallbackHandler(ctx) {
       await startPhotoTest(ctx);
     } else if (callbackData === 'test_mode_analyze') {
       await startAnalyzeTest(ctx);
+    } else if (callbackData === 'test_mode_quick') {
+      await startQuickAnalyzeTest(ctx);
     } else if (callbackData === 'test_show_results') {
       await showResults(ctx);
     } else if (callbackData === 'test_clear_results') {
@@ -117,12 +119,14 @@ async function selectPrompt(ctx, callbackData) {
                  `Теперь выберите режим тестирования:\n\n` +
                  `📝 <b>По тексту</b> - введите название блюда и вес\n` +
                  `📸 <b>По фото</b> - отправьте фото еды\n` +
-                 `🔍 <b>Анализ фото</b> - только определение блюда и веса`;
+                 `🔍 <b>Анализ фото</b> - только определение блюда и веса\n` +
+                 `⚡️ <b>Быстрый анализ</b> - GPT-4o и GPT-5.4 Mini`;
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('📝 Тест по тексту', 'test_mode_text')],
     [Markup.button.callback('📸 Тест по фото', 'test_mode_photo')],
     [Markup.button.callback('🔍 Анализ фото', 'test_mode_analyze')],
+    [Markup.button.callback('⚡️ Быстрый анализ', 'test_mode_quick')],
     [Markup.button.callback('🔙 Назад', 'test_back')]
   ]);
 
@@ -232,6 +236,34 @@ async function startAnalyzeTest(ctx) {
 }
 
 /**
+ * Начать режим быстрого анализа (только GPT-4o и GPT-5.4 Mini)
+ */
+async function startQuickAnalyzeTest(ctx) {
+  const userId = ctx.from.id;
+  const existingState = testStates.get(userId) || {};
+
+  // Только GPT-4o и GPT-5.4 Mini
+  const quickModels = ['gpt-4o', 'gpt-5.4-mini'];
+
+  testStates.set(userId, {
+    ...existingState,
+    mode: 'quick',
+    step: 'waiting_photo',
+    selectedModels: quickModels
+  });
+
+  await ctx.editMessageText(
+    `⚡️ <b>Быстрый анализ</b>\n\n` +
+    `Модели: GPT-4o и GPT-5.4 Mini\n` +
+    `Режим: только название блюда и вес\n\n` +
+    `Отправьте фото еды:`,
+    { parse_mode: 'HTML' }
+  );
+
+  logger.info('Started quick analyze test', { userId });
+}
+
+/**
  * Показать настройки тестирования
  */
 async function showSettings(ctx) {
@@ -338,6 +370,8 @@ async function showModelSelection(ctx, userId) {
     modeText = '📸 Фото';
   } else if (state.mode === 'analyze') {
     modeText = '🔍 Анализ';
+  } else if (state.mode === 'quick') {
+    modeText = '⚡️ Быстрый анализ';
   }
 
   let message = `🤖 <b>Выбор моделей</b>\n\n`;
@@ -356,7 +390,7 @@ async function showModelSelection(ctx, userId) {
 
   message += `Выбрано моделей: ${state.selectedModels.length}\n\n`;
   message += `Выберите модели для тестирования:`;
-  if (state.mode === 'photo' || state.mode === 'analyze') {
+  if (state.mode === 'photo' || state.mode === 'analyze' || state.mode === 'quick') {
     message += `\n(Показаны только модели с поддержкой фото)`;
   }
 
@@ -397,6 +431,8 @@ async function toggleModel(ctx, callbackData) {
     modeText = '📸 Фото';
   } else if (state.mode === 'analyze') {
     modeText = '🔍 Анализ';
+  } else if (state.mode === 'quick') {
+    modeText = '⚡️ Быстрый анализ';
   }
 
   let message = `🤖 <b>Выбор моделей</b>\n\n`;
@@ -415,7 +451,7 @@ async function toggleModel(ctx, callbackData) {
 
   message += `Выбрано моделей: ${state.selectedModels.length}\n\n`;
   message += `Выберите модели для тестирования:`;
-  if (state.mode === 'photo' || state.mode === 'analyze') {
+  if (state.mode === 'photo' || state.mode === 'analyze' || state.mode === 'quick') {
     message += `\n(Показаны только модели с поддержкой фото)`;
   }
 
@@ -465,7 +501,7 @@ async function runTests(ctx) {
     
     if (state.mode === 'text') {
       result = await modelTester.testModelByText(modelId, state.foodName, state.weight, state.promptType || 'simple');
-    } else if (state.mode === 'analyze') {
+    } else if (state.mode === 'analyze' || state.mode === 'quick') {
       // Режим анализа - только название и вес
       result = await modelTester.testModelByAnalyze(modelId, state.photoUrl, state.weight || null);
     } else {
@@ -579,7 +615,7 @@ async function handleTestPhoto(ctx) {
   const userId = ctx.from.id;
   const state = testStates.get(userId);
 
-  if (!state || (state.mode !== 'photo' && state.mode !== 'analyze') || state.step !== 'waiting_photo') {
+  if (!state || !['photo', 'analyze', 'quick'].includes(state.mode) || state.step !== 'waiting_photo') {
     return; // Не наше фото
   }
 
@@ -590,6 +626,58 @@ async function handleTestPhoto(ctx) {
     const photoUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
 
     state.photoUrl = photoUrl;
+
+    // Для режима quick сразу запускаем тесты без выбора моделей
+    if (state.mode === 'quick') {
+      state.step = 'running';
+      
+      await ctx.reply('⏳ Запускаю быстрый анализ...');
+
+      // Очищаем предыдущие результаты
+      modelTester.clearResults();
+
+      // Запускаем тесты для обеих моделей
+      for (const modelId of state.selectedModels) {
+        await modelTester.testModelByAnalyze(modelId, state.photoUrl, null);
+      }
+
+      // Отправляем результаты
+      const results = modelTester.getAllResults();
+      let message = `⚡️ <b>Результаты быстрого анализа</b>\n\n`;
+
+      results.forEach((result, index) => {
+        if (result.error) {
+          message += `${index + 1}. ❌ <b>${result.modelName}</b>\n`;
+          message += `   ⚠️ Ошибка: ${result.error}\n\n`;
+        } else {
+          message += `${index + 1}. ✅ <b>${result.modelName}</b>\n`;
+          
+          // Если есть массив items, показываем каждое блюдо отдельно
+          if (result.items && result.items.length > 0) {
+            result.items.forEach((item, itemIndex) => {
+              message += `   ${itemIndex + 1}. 🍽 <code>${item.name}</code> - <code>${item.weight}г</code>\n`;
+            });
+            message += `   📊 Общий вес: <code>${result.weight}г</code>\n`;
+          } else {
+            // Старый формат - одно блюдо
+            message += `   🍽 Название: <code>${result.dishName}</code>\n`;
+            message += `   ⚖️ Вес: <code>${result.weight}г</code>\n`;
+          }
+          
+          message += `   ⏱ Время: ${result.duration}мс | 💰 ${result.cost.toFixed(10).replace('.', ',')}\n\n`;
+        }
+      });
+
+      await ctx.reply(message, { parse_mode: 'HTML' });
+
+      // Очищаем состояние
+      testStates.delete(userId);
+      
+      logger.info('Quick analyze completed', { userId });
+      return;
+    }
+
+    // Для обычных режимов - запрашиваем вес
     state.step = 'waiting_weight_optional';
 
     const keyboard = Markup.inlineKeyboard([
